@@ -1,0 +1,13 @@
+.venv/
+venv/
+
+__pycache__/
+*.pyc
+
+data/
+visuals/
+
+*.pt
+*.pth
+
+.vscode/
