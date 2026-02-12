@@ -2,12 +2,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import random_split
 from dataset import FundusDataset
 from transforms import train_transform
+from dataloader import create_loaders
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import os
+from collections import Counter
+import pickle
 
 # -- reproducibility -- #
 seed = 42
@@ -34,8 +38,7 @@ train_dataset, val_dataset = random_split(dataset, [train_size, val_size], gener
 # saving validation indices for eval
 torch.save(val_dataset.indices, "val_indices.pt")
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+train_loader, val_loader = create_loaders(train_dataset, val_dataset, batch_size=32)
 
 
 # -- simple CNN definition -- #
@@ -54,15 +57,19 @@ class simpleCNN(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2)
         )
+
+        self.global_pool = nn.AdaptiveAvgPool2d((1,1))
+
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64*28*28, 128),
+            nn.Linear(64, 128),
             nn.ReLU(),
             nn.Linear(128, num_classes)
         )
     
     def forward(self, x):
         x = self.conv_layers(x)
+        x = self.global_pool(x)
         return self.fc_layers(x)
     
 
@@ -70,9 +77,27 @@ class simpleCNN(nn.Module):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = simpleCNN(num_classes=len(baseline_classes)).to(device)
 
-criterion = nn.CrossEntropyLoss()
+# weighted loss criterion to handle class imbalance
+labels_list = [label for _, label in dataset.samples]
+class_counts = Counter(labels_list)
+total_samples = sum(class_counts.values())
+class_weights = []
+
+for i in range(len(baseline_classes)):
+    class_weights.append(total_samples / class_counts[i])
+class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+
+criterion = nn.CrossEntropyLoss(weight=class_weights)
 optimiser = optim.Adam(model.parameters(), lr=1e-4)
-num_epochs = 5
+scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+num_epochs = 100
+
+# checkpoints
+os.makedirs("checkpoints", exist_ok=True)
+best_val_acc = 0.0
+
+train_losses, val_losses = [], []
+train_accs, val_accs = [], []
 
 # -- training loop -- #
 for epoch in range(num_epochs):
@@ -118,6 +143,12 @@ for epoch in range(num_epochs):
     val_loss /= val_total
     val_acc = val_correct / val_total
 
+    # store metrics
+    train_losses.append(train_loss)
+    train_accs.append(train_acc)
+    val_losses.append(val_loss)
+    val_accs.append(val_acc)
+
     print(f"""
         Epoch {epoch+1}/{num_epochs}
         Train Loss: {train_loss:.4f}
@@ -126,10 +157,65 @@ for epoch in range(num_epochs):
         Val Loss: {val_loss:.4f}
         Val Acc: {val_acc:.4f}
           """)
+
+    # save the best model
+    if val_acc > best_val_acc:
+        best_val_acc = val_acc
+        torch.save(model.state_dict(), "checkpoints/best_model.pth")
+        print("Best model saved")
+
+    # save checkpoint every 10 epochs
+    if (epoch + 1) % 10 == 0:
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimiser.state_dict()
+        }, f"checkpoints/checkpoint_epoch_{epoch+1}.pth")
+        print(f"checkpoint saved at epoch {epoch+1}")
+    
+    scheduler.step()
+print("training complete")
     
 # -- save model -- #
 torch.save(model.state_dict(), "baseline_cnn.pth")
 print("model saved as baseline_cnn.pth")
+
+os.makedirs("visuals", exist_ok=True)
+
+# -- plotting loss curves -- #
+plt.figure(figsize=(8,6))
+plt.plot(range(1, num_epochs+1), train_losses, label="Train Loss")
+plt.plot(range(1, num_epochs+1), val_losses, label="Validation Loss")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("Training and Validation Loss")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("visuals/loss_curves.png")
+plt.show()
+
+# -- plotting accuracy curves -- #
+plt.figure(figsize=(8,6))
+plt.plot(range(1, num_epochs+1), train_accs, label="Train Accuracy")
+plt.plot(range(1, num_epochs+1), val_accs, label="Validation Accuracy")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
+plt.title("Training and Validation Accuracy")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("visuals/accuracy_curves.png")
+plt.show()
+
+# -- saving metrics arrays -- #
+with open("metrics.pkl", "wb") as f:
+    pickle.dump({
+        "train_losses": train_losses,
+        "train_accs": train_accs,
+        "val_losses": val_losses,
+        "val_accs": val_accs
+    }, f)
 
 """
 # -- visualise predictions on 4 validation images -- #

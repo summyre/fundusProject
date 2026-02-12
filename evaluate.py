@@ -3,8 +3,9 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 
-from dataset import FundusDataset
+from dataset import FundusDataset, apply_clahe
 from transforms import val_transform
 from train_baseline import simpleCNN
 
@@ -15,11 +16,12 @@ class_names = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopa
 dataset = FundusDataset(
     root_dir=r"data/Augmented_Dataset",
     transform=val_transform,
-    class_filter=class_names
+    class_filter=class_names,
+    enhance=True # if clahe was applied in training
 )
 
 # load same val split
-val_indices = torch.load("val_indices.pt")
+val_indices = torch.load("val_indices.pt", map_location=device)
 val_dataset = Subset(dataset, val_indices)
 val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
@@ -48,6 +50,10 @@ print("\nClassification Report:\n")
 print(classification_report(all_labels, all_preds, target_names=class_names, digits=3))
 
 cm = confusion_matrix(all_labels, all_preds)
+per_class_acc = cm.diagonal() / cm.sum(axis=1)
+
+for cls, acc in zip(class_names, per_class_acc):
+    print(f"{cls}: {acc:.3f}")
 
 plt.figure(figsize=(10,8))
 sns.heatmap(
