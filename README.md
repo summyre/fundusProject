@@ -1,8 +1,10 @@
 # Retinal Disease Classification
 ## Environment
-Python 3.9
+Python 3.10
 
 ## Setup
-`python -m venv venv`
+`conda create -n venv python=3.10`
+
+`conda activate venv`
 
 `pip install -r requirements.txt`
