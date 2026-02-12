@@ -1,3 +1,7 @@
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -6,12 +10,10 @@ from torch.utils.data import random_split
 from dataset import FundusDataset
 from transforms import train_transform
 from dataloader import create_loaders
-import matplotlib.pyplot as plt
-import numpy as np
-import random
-import os
 from collections import Counter
 import pickle
+from datetime import datetime
+import json
 
 # -- reproducibility -- #
 seed = 42
@@ -19,6 +21,12 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
+
+# -- folder setup -- #
+exp_name = f"baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+exp_dir = os.path.join("experiments", exp_name)
+os.makedirs(exp_dir, exist_ok=True)
+os.makedirs(os.path.join(exp_dir, "checkpoints"), exist_ok=True)
 
 # -- database setup -- #
 baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
@@ -36,7 +44,7 @@ generator = torch.Generator().manual_seed(seed)
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
 
 # saving validation indices for eval
-torch.save(val_dataset.indices, "val_indices.pt")
+torch.save(val_dataset.indices, os.path.join(exp_dir, "val_indices.pt"))
 
 train_loader, val_loader = create_loaders(train_dataset, val_dataset, batch_size=32)
 
@@ -92,8 +100,20 @@ optimiser = optim.Adam(model.parameters(), lr=1e-4)
 scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
 num_epochs = 100
 
+config = {
+    "model": "simpleCNN",
+    "epochs": num_epochs,
+    "batch_size": 32,
+    "learning_rate": 1e-4,
+    "scheduler_step": 30,
+    "scheduler_gamma": 0.1,
+    "seed": seed,
+    "classes": baseline_classes
+}
+with open(os.path.join(exp_dir, "config.json"), "w") as f:
+    json.dump(config, f, indent=4)
+
 # checkpoints
-os.makedirs("checkpoints", exist_ok=True)
 best_val_acc = 0.0
 
 train_losses, val_losses = [], []
@@ -161,7 +181,7 @@ for epoch in range(num_epochs):
     # save the best model
     if val_acc > best_val_acc:
         best_val_acc = val_acc
-        torch.save(model.state_dict(), "checkpoints/best_model.pth")
+        torch.save(model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
         print("Best model saved")
 
     # save checkpoint every 10 epochs
@@ -170,14 +190,20 @@ for epoch in range(num_epochs):
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimiser.state_dict()
-        }, f"checkpoints/checkpoint_epoch_{epoch+1}.pth")
+        }, os.path.join(exp_dir, f"checkpoint_epoch_{epoch+1}.pth"))
+
+        # push to git
+        os.system(f"git add {exp_dir}")
+        os.system(f'git commit -m "checkpoint epoch {epoch}"')
+        os.system("git push")
+
         print(f"checkpoint saved at epoch {epoch+1}")
     
     scheduler.step()
 print("training complete")
     
 # -- save model -- #
-torch.save(model.state_dict(), "baseline_cnn.pth")
+torch.save(model.state_dict(), os.path.join(exp_dir, "final_model.pth"))
 print("model saved as baseline_cnn.pth")
 
 os.makedirs("visuals", exist_ok=True)
@@ -192,7 +218,7 @@ plt.title("Training and Validation Loss")
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("visuals/loss_curves.png")
+plt.savefig(os.path.join(exp_dir, "loss_curves.png"))
 plt.show()
 
 # -- plotting accuracy curves -- #
@@ -205,11 +231,11 @@ plt.title("Training and Validation Accuracy")
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("visuals/accuracy_curves.png")
+plt.savefig(os.path.join(exp_dir, "accuracy_curves.png"))
 plt.show()
 
 # -- saving metrics arrays -- #
-with open("metrics.pkl", "wb") as f:
+with open(os.path.join(exp_dir, "metrics.pkl"), "wb") as f:
     pickle.dump({
         "train_losses": train_losses,
         "train_accs": train_accs,
