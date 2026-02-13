@@ -3,6 +3,7 @@ import hashlib
 from collections import Counter
 import matplotlib.pyplot as plt
 from PIL import Image
+import torch
 
 data_root = r"data/Augmented_Dataset"
 
@@ -44,6 +45,7 @@ plt.title("Class distribution in augmented dataset")
 plt.tight_layout()
 plt.show()
 
+"""
 # -- duplicate detection -- #
 hashes = {}
 duplicates = []
@@ -62,6 +64,8 @@ else:
     print(f"found {len(duplicates)} duplicate pairs:")
     for original, duplicate in duplicates[:5]:
         print(f"duplicate:\n {original}\n {duplicate}")
+"""
+duplicates = [1,2]
 
 # -- summary -- #
 total_images = sum(class_counts.values())
@@ -71,3 +75,11 @@ total images: {total_images}
 number of classes: {len(class_counts)}
 duplicate images: {len(duplicates)}
 """)
+
+# -- torch check -- #
+a = torch.cuda.is_available()
+id = torch.cuda.current_device()
+name = torch.cuda.get_device_name(id)
+memory = torch.cuda.device(id)
+gpu = torch.cuda.device_count()
+print(f"\navailable: {a}\ncurrent device: {id} | {name}\ngpu: {memory} | {gpu}")

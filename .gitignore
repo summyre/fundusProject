@@ -8,6 +8,7 @@ data/
 visuals/
 checkpoints/
 experiments/
+expmetrics/
 
 *.pt
 *.pth
