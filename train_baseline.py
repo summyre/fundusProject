@@ -48,7 +48,6 @@ torch.save(val_dataset.indices, os.path.join(exp_dir, "val_indices.pt"))
 
 train_loader, val_loader = create_loaders(train_dataset, val_dataset, batch_size=32)
 
-
 # -- simple CNN definition -- #
 class simpleCNN(nn.Module):
     def __init__(self, num_classes=9):
