@@ -27,7 +27,6 @@ def main():
     exp_name = f"baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     exp_dir = os.path.join("experiments", exp_name)
     os.makedirs(exp_dir, exist_ok=True)
-    os.makedirs(os.path.join(exp_dir, "checkpoints"), exist_ok=True)
 
     # -- database setup -- #
     baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
@@ -192,12 +191,6 @@ def main():
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimiser.state_dict()
             }, os.path.join(exp_dir, f"checkpoint_epoch_{epoch+1}.pth"))
-
-            # push to git
-            os.system(f"git add {exp_dir}")
-            os.system(f'git commit -m "checkpoint epoch {epoch}"')
-            os.system("git push")
-
             print(f"checkpoint saved at epoch {epoch+1}")
         
         scheduler.step()
@@ -206,8 +199,6 @@ def main():
     # -- save model -- #
     torch.save(model.state_dict(), os.path.join(exp_dir, "final_model.pth"))
     print("model saved as baseline_cnn.pth")
-
-    os.makedirs("visuals", exist_ok=True)
 
     # -- plotting loss curves -- #
     plt.figure(figsize=(8,6))
