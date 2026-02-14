@@ -15,6 +15,33 @@ import pickle
 from datetime import datetime
 import json
 
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0
+        self.best_model_state = None
+
+    def __call__(self, val_loss, model):
+        score = val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+        elif score > self.best_score - self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+        
+    def load_best_model(self, model):
+        model.load_state_dict(self.best_model_state)
+
 def main():
     # -- reproducibility -- #
     seed = 42
@@ -47,6 +74,13 @@ def main():
     train_dataset.dataset.transform = train_transform
     val_dataset.dataset.transform = val_transform
     test_dataset.dataset.transform = val_transform
+
+    print(f"""
+train size: {len(train_dataset)}
+val size: {len(val_dataset)}
+test size: {len(test_dataset)}
+total: {len(train_dataset) + len(val_dataset) + len(test_dataset)} 
+        """)
 
     # saving validation indices for eval
     torch.save(val_dataset.indices, os.path.join(exp_dir, "val_indices.pt"))
@@ -102,6 +136,11 @@ def main():
     labels_list = [label for _, label in dataset.samples]
     class_counts = Counter(labels_list)
 
+    print("\noriginal class counts")
+    for i, class_name in enumerate(baseline_classes):
+        print(f"{class_name}: {class_counts[i]}")
+    print(f"total images: {len(dataset)}\n")
+
     class_weights = torch.tensor(
         [1.0 / class_counts[i] for i in range(len(baseline_classes))],
         dtype=torch.float
@@ -127,9 +166,6 @@ def main():
     }
     with open(os.path.join(exp_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=4)
-
-    # checkpoints
-    best_val_acc = 0.0
 
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -182,6 +218,7 @@ def main():
 
         if early_stopping.early_stop:
             print("early stopping triggered")
+            num_epochs = epoch
             break
 
         # store metrics
@@ -287,30 +324,3 @@ for i in range(4):
     plt.axis("off")
     plt.show()
 """
-
-class EarlyStopping:
-    def __init__(self, patience=5, delta=0):
-        self.patience = patience
-        self.delta = delta
-        self.best_score = None
-        self.early_stop = False
-        self.counter = 0
-        self.best_model_state = None
-
-    def __call__(self, val_loss, model):
-        score = val_loss
-
-        if self.best_score is None:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-        elif score > self.best_score - self.delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-            self.counter = 0
-        
-    def load_best_model(self, model):
-        model.load_state_dict(self.best_model_state)
