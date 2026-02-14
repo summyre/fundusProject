@@ -8,7 +8,7 @@ import torch.optim as optim
 import torch.nn.functional as f
 from torch.utils.data import random_split
 from dataset import FundusDataset
-from transforms import train_transform
+from transforms import train_transform, val_transform
 from dataloader import create_loaders
 from collections import Counter
 import pickle
@@ -32,21 +32,26 @@ def main():
     baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 
     dataset = FundusDataset(
-        root_dir=r"data/Augmented_Dataset",
-        transform=train_transform,
+        root_dir=r"data/Original_Dataset",
+        transform=None,
         class_filter=baseline_classes
     )
 
-    # train/validation split
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
+    # train/test/validation split
+    train_size = int(0.75 * len(dataset))
+    val_size = int(0.15 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
     generator = torch.Generator().manual_seed(seed)
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size], generator=generator)
+
+    train_dataset.dataset.transform = train_transform
+    val_dataset.dataset.transform = val_transform
+    test_dataset.dataset.transform = val_transform
 
     # saving validation indices for eval
     torch.save(val_dataset.indices, os.path.join(exp_dir, "val_indices.pt"))
 
-    train_loader, val_loader = create_loaders(train_dataset, val_dataset, batch_size=32)
+    train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
 
     # -- simple CNN definition -- #
@@ -55,13 +60,20 @@ def main():
             super(simpleCNN, self).__init__()
 
             self.conv_layers = nn.Sequential(
-                nn.Conv2d(3, 16, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(16, 32, kernel_size=3, padding=1),
+                nn.Conv2d(3, 32, kernel_size=3, padding=1),
+                nn.BatchNorm2d(32),
                 nn.ReLU(),
                 nn.MaxPool2d(2),
                 nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
                 nn.ReLU(),
                 nn.MaxPool2d(2)
             )
@@ -70,9 +82,10 @@ def main():
 
             self.fc_layers = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(64, 128),
+                nn.Linear(256, 256),
                 nn.ReLU(),
-                nn.Linear(128, num_classes)
+                nn.Dropout(0.5),
+                nn.Linear(256, num_classes)
             )
         
         def forward(self, x):
@@ -88,23 +101,25 @@ def main():
     # weighted loss criterion to handle class imbalance
     labels_list = [label for _, label in dataset.samples]
     class_counts = Counter(labels_list)
-    total_samples = sum(class_counts.values())
-    class_weights = []
 
-    for i in range(len(baseline_classes)):
-        class_weights.append(total_samples / class_counts[i])
-    class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+    class_weights = torch.tensor(
+        [1.0 / class_counts[i] for i in range(len(baseline_classes))],
+        dtype=torch.float
+    )
+    class_weights = class_weights / class_weights.sum()
+    class_weights = class_weights.to(device)
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimiser = optim.Adam(model.parameters(), lr=1e-4)
+    optimiser = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+    early_stopping = EarlyStopping(patience=10, delta=0.01)
     num_epochs = 100
 
     config = {
         "model": "simpleCNN",
         "epochs": num_epochs,
-        "batch_size": 32,
-        "learning_rate": 1e-4,
+        "batch_size": 128,
+        "learning_rate": 1e-3,
         "scheduler_step": 30,
         "scheduler_gamma": 0.1,
         "seed": seed,
@@ -163,6 +178,12 @@ def main():
         val_loss /= val_total
         val_acc = val_correct / val_total
 
+        early_stopping(val_loss, model)
+
+        if early_stopping.early_stop:
+            print("early stopping triggered")
+            break
+
         # store metrics
         train_losses.append(train_loss)
         train_accs.append(train_acc)
@@ -178,12 +199,6 @@ def main():
             Val Acc: {val_acc:.4f}
             """)
 
-        # save the best model
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
-            print("Best model saved")
-
         # save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
             torch.save({
@@ -194,11 +209,14 @@ def main():
             print(f"checkpoint saved at epoch {epoch+1}")
         
         scheduler.step()
+
+    early_stopping.load_best_model(model)
+    torch.save(model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
     print("training complete")
         
     # -- save model -- #
     torch.save(model.state_dict(), os.path.join(exp_dir, "final_model.pth"))
-    print("model saved as baseline_cnn.pth")
+    print("model saved as final_model.pth")
 
     # -- plotting loss curves -- #
     plt.figure(figsize=(8,6))
@@ -269,3 +287,30 @@ for i in range(4):
     plt.axis("off")
     plt.show()
 """
+
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0
+        self.best_model_state = None
+
+    def __call__(self, val_loss, model):
+        score = val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+        elif score > self.best_score - self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+        
+    def load_best_model(self, model):
+        model.load_state_dict(self.best_model_state)
