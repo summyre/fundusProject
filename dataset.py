@@ -57,7 +57,7 @@ def apply_clahe(img):
     cl = clahe.apply(l)
 
     # merge back
-    merged = cv2((cl, a, b))
+    merged = cv2.merge((cl, a, b))
     enhanced = cv2.cvtColor(merged, cv2.COLOR_Lab2BGR)
 
     return Image.fromarray(enhanced)
