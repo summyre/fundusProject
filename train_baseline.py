@@ -102,7 +102,6 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
 
     # accuracy
     acc = np.mean(all_preds == all_labels)
-    print(f"{split_name.upper()} accuracy = {acc:.4f}")
 
     # macro metrics
     m_f1 = f1_score(all_labels, all_preds, average="macro")
@@ -278,7 +277,6 @@ total: {len(train_dataset) + len(val_dataset) + len(test_dataset)}
 
         if early_stopping.early_stop:
             print("early stopping triggered")
-            num_epochs = epoch
             break
 
         # store metrics
