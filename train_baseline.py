@@ -7,13 +7,132 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
 from torch.utils.data import random_split
-from dataset import FundusDataset
-from transforms import train_transform, val_transform
-from dataloader import create_loaders
+from dataset import FundusDataset, train_transform, val_transform, create_loaders
 from collections import Counter
 import pickle
 from datetime import datetime
 import json
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score
+
+# -- simple CNN definition -- #
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes=9):
+        super(SimpleCNN, self).__init__()
+
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(2)
+        )
+
+        self.global_pool = nn.AdaptiveAvgPool2d((1,1))
+
+        self.fc_layers = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
+        
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.global_pool(x)
+        return self.fc_layers(x)
+
+# -- early stopping definition -- #
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0
+        self.best_model_state = None
+
+    def __call__(self, val_loss, model):
+        score = val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+        elif score > self.best_score - self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+        
+    def load_best_model(self, model):
+        model.load_state_dict(self.best_model_state)
+
+# -- evaluate model function -- #
+def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"):
+    model.eval()
+
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for images, labels, _ in loader:
+            images = images.to(device)
+            outputs = model(images)
+            preds = torch.argmax(outputs, dim=1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.numpy())
+
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+
+    # accuracy
+    acc = np.mean(all_preds == all_labels)
+    print(f"{split_name.upper()} accuracy = {acc:.4f}")
+
+    # macro metrics
+    m_f1 = f1_score(all_labels, all_preds, average="macro")
+    m_rec = recall_score(all_labels, all_preds, average="macro")
+
+    print(f"""
+{split_name.capitalize()} Results
+accuracy:       {acc:.4f}
+macro f1:       {m_f1:.4f}
+macro recall:   {m_rec:.4f}
+""")
+    
+    cm = confusion_matrix(all_labels, all_preds)
+
+    plt.figure(figsize=(8,8))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+    disp.plot(xticks_rotation=45)
+    plt.title(f"{split_name.capitalize()} Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"))
+    plt.show()
+
+    # classification report
+    report = classification_report(all_labels, all_preds, target_names=class_names, digits=4)
+
+    with open(os.path.join(exp_dir, f"{split_name}_classification_report.txt")):
+        f.write(report)
+    print(report)
+
+    return acc, m_f1, m_rec, cm
 
 def main():
     # -- reproducibility -- #
@@ -53,60 +172,30 @@ def main():
 
     train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
-
-    # -- simple CNN definition -- #
-    class simpleCNN(nn.Module):
-        def __init__(self, num_classes=9):
-            super(simpleCNN, self).__init__()
-
-            self.conv_layers = nn.Sequential(
-                nn.Conv2d(3, 32, kernel_size=3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, kernel_size=3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(64, 128, kernel_size=3, padding=1),
-                nn.BatchNorm2d(128),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(128, 256, kernel_size=3, padding=1),
-                nn.BatchNorm2d(256),
-                nn.ReLU(),
-                nn.MaxPool2d(2)
-            )
-
-            self.global_pool = nn.AdaptiveAvgPool2d((1,1))
-
-            self.fc_layers = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(256, 256),
-                nn.ReLU(),
-                nn.Dropout(0.5),
-                nn.Linear(256, num_classes)
-            )
-        
-        def forward(self, x):
-            x = self.conv_layers(x)
-            x = self.global_pool(x)
-            return self.fc_layers(x)
-        
-
     # -- training setup -- #
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = simpleCNN(num_classes=len(baseline_classes)).to(device)
+    model = SimpleCNN(num_classes=len(baseline_classes)).to(device)
 
     # weighted loss criterion to handle class imbalance
-    labels_list = [label for _, label in dataset.samples]
-    class_counts = Counter(labels_list)
+    train_labels = []
+    
+    for idx in train_dataset.indices:
+        _, label = dataset.samples[idx]
+        train_labels.append(label)
+    
+    class_counts = Counter(train_labels)
+
+    print("training class distribution: ")
+    for i, class_name in enumerate(baseline_classes):
+        print(f"{class_name}: {class_counts[i]}")
+    
+    total = len(train_labels)
 
     class_weights = torch.tensor(
-        [1.0 / class_counts[i] for i in range(len(baseline_classes))],
+        [total / class_counts[i] for i in range(len(baseline_classes))],
         dtype=torch.float
     )
-    class_weights = class_weights / class_weights.sum()
+
     class_weights = class_weights.to(device)
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
@@ -116,7 +205,7 @@ def main():
     num_epochs = 100
 
     config = {
-        "model": "simpleCNN",
+        "model": "SimpleCNN",
         "epochs": num_epochs,
         "batch_size": 128,
         "learning_rate": 1e-3,
@@ -178,6 +267,9 @@ def main():
         val_loss /= val_total
         val_acc = val_correct / val_total
 
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+
         early_stopping(val_loss, model)
 
         if early_stopping.early_stop:
@@ -211,17 +303,26 @@ def main():
         scheduler.step()
 
     early_stopping.load_best_model(model)
+    epochs_ran = len(train_losses)
     torch.save(model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
+
+    print("evaluating on validation set")
+    evaluate_model(model, val_loader, device, baseline_classes, exp_dir, split_name="val")
+
     print("training complete")
+    print(f"best validation accuracy: {best_val_acc:.4f}")
         
     # -- save model -- #
     torch.save(model.state_dict(), os.path.join(exp_dir, "final_model.pth"))
     print("model saved as final_model.pth")
 
+    print("evaluating on test set")
+    evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")
+
     # -- plotting loss curves -- #
     plt.figure(figsize=(8,6))
-    plt.plot(range(1, num_epochs+1), train_losses, label="Train Loss")
-    plt.plot(range(1, num_epochs+1), val_losses, label="Validation Loss")
+    plt.plot(range(1, epochs_ran+1), train_losses, label="Train Loss")
+    plt.plot(range(1, epochs_ran+1), val_losses, label="Validation Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training and Validation Loss")
@@ -233,8 +334,8 @@ def main():
 
     # -- plotting accuracy curves -- #
     plt.figure(figsize=(8,6))
-    plt.plot(range(1, num_epochs+1), train_accs, label="Train Accuracy")
-    plt.plot(range(1, num_epochs+1), val_accs, label="Validation Accuracy")
+    plt.plot(range(1, epochs_ran+1), train_accs, label="Train Accuracy")
+    plt.plot(range(1, epochs_ran+1), val_accs, label="Validation Accuracy")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.title("Training and Validation Accuracy")
@@ -257,60 +358,3 @@ if __name__ == '__main__':
     from multiprocessing import freeze_support
     freeze_support()
     main()
-
-
-"""
-# -- visualise predictions on 4 validation images -- #
-model.eval()
-images, labels, class_names = next(iter(val_loader))
-images, labels = images.to(device), labels.to(device)
-
-# get predictions
-with torch.no_grad():
-    outputs = model(images)
-    probs = f.softmax(outputs, dim=1)
-    preds = torch.argmax(probs, dim=1)
-
-images = images.cpu()
-labels = labels.cpu()
-preds = preds.cpu()
-
-def unnormalise(img):
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
-    std = torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
-    return img * std + mean
-
-for i in range(4):
-    img = unnormalise(images[i]).permute(1, 2, 0)
-    plt.imshow(img)
-    plt.title(f"True: {labels[i].item()} | Pred: {preds[i].item()} | Class: {class_names[i]}")
-    plt.axis("off")
-    plt.show()
-"""
-
-class EarlyStopping:
-    def __init__(self, patience=5, delta=0):
-        self.patience = patience
-        self.delta = delta
-        self.best_score = None
-        self.early_stop = False
-        self.counter = 0
-        self.best_model_state = None
-
-    def __call__(self, val_loss, model):
-        score = val_loss
-
-        if self.best_score is None:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-        elif score > self.best_score - self.delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
-            self.counter = 0
-        
-    def load_best_model(self, model):
-        model.load_state_dict(self.best_model_state)

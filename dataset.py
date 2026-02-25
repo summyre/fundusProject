@@ -1,10 +1,14 @@
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+from torchvision import transforms
+import torch
 from PIL import Image
 import pandas as pd
 import os
 import cv2
 import numpy as np
 
+# -- dataset class -- #
 class FundusDataset(Dataset):
     def __init__(self, root_dir, transform=None, class_filter=None, enhance=False):
         self.samples = []
@@ -43,7 +47,7 @@ class FundusDataset(Dataset):
 
         return image, label, class_name
 
-
+# -- enhancements -- #
 # CLAHE function
 def apply_clahe(img):
     img = np.array(img)
@@ -61,3 +65,55 @@ def apply_clahe(img):
     enhanced = cv2.cvtColor(merged, cv2.COLOR_Lab2BGR)
 
     return Image.fromarray(enhanced)
+
+
+# -- dataloaders -- #
+def create_loaders(train_dataset, val_dataset, test_dataset, batch_size=32, pin_memory=True):
+    if pin_memory and not torch.cuda.is_available():
+        pin_memory = False
+        print("cuda is not available, setting pin_memory=False")
+        
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=pin_memory
+    )
+
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=pin_memory
+    )
+
+    test_loader = DataLoader(
+        test_dataset, batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=pin_memory
+    )
+    
+    return train_loader, val_loader, test_dataset
+
+# -- transforms -- #
+train_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean = [0.485, 0.456, 0.406],
+        std = [0.229, 0.224, 0.225]
+    )
+])
+
+val_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean = [0.485, 0.456, 0.406],
+        std = [0.229, 0.224, 0.225]
+    )
+])
