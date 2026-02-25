@@ -167,6 +167,13 @@ def main():
     val_dataset.dataset.transform = val_transform
     test_dataset.dataset.transform = val_transform
 
+    print(f"""
+train size: {len(train_dataset)}
+val size: {len(val_dataset)}
+test size: {len(test_dataset)}
+total: {len(train_dataset) + len(val_dataset) + len(test_dataset)} 
+        """)
+
     # saving validation indices for eval
     torch.save(val_dataset.indices, os.path.join(exp_dir, "val_indices.pt"))
 
@@ -216,9 +223,6 @@ def main():
     }
     with open(os.path.join(exp_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=4)
-
-    # checkpoints
-    best_val_acc = 0.0
 
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -274,6 +278,7 @@ def main():
 
         if early_stopping.early_stop:
             print("early stopping triggered")
+            num_epochs = epoch
             break
 
         # store metrics
@@ -315,6 +320,9 @@ def main():
     # -- save model -- #
     torch.save(model.state_dict(), os.path.join(exp_dir, "final_model.pth"))
     print("model saved as final_model.pth")
+
+    print("evaluating on test set")
+    evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")
 
     print("evaluating on test set")
     evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import torch
 
-data_root = r"data/Augmented_Dataset"
+data_root = r"data/Original_Dataset"
 
 def image_hash(image_path):
     hasher = hashlib.md5()
