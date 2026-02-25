@@ -312,7 +312,7 @@ total: {len(train_dataset) + len(val_dataset) + len(test_dataset)}
     torch.save(model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
 
     print("evaluating on validation set")
-    evaluate_model(model, val_loader, device, baseline_classes, exp_dir, split_name="val")
+    val_acc, val_f1, val_recall = evaluate_model(model, val_loader, device, baseline_classes, exp_dir, split_name="val")
 
     print("training complete")
     print(f"best validation accuracy: {best_val_acc:.4f}")
@@ -322,10 +322,7 @@ total: {len(train_dataset) + len(val_dataset) + len(test_dataset)}
     print("model saved as final_model.pth")
 
     print("evaluating on test set")
-    evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")
-
-    print("evaluating on test set")
-    evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")
+    test_acc, test_f1, test_recall = evaluate_model(model, test_loader, device, baseline_classes, exp_dir, split_name="test")
 
     # -- plotting loss curves -- #
     plt.figure(figsize=(8,6))
