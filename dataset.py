@@ -95,7 +95,7 @@ def create_loaders(train_dataset, val_dataset, test_dataset, batch_size=32, pin_
         pin_memory=pin_memory
     )
     
-    return train_loader, val_loader, test_dataset
+    return train_loader, val_loader, test_loader
 
 # -- transforms -- #
 train_transform = transforms.Compose([

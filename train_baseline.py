@@ -104,8 +104,8 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
     acc = np.mean(all_preds == all_labels)
 
     # macro metrics
-    m_f1 = f1_score(all_labels, all_preds, average="macro")
-    m_rec = recall_score(all_labels, all_preds, average="macro")
+    m_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
+    m_rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
 
     print(f"""
 {split_name.capitalize()} Results
@@ -116,7 +116,7 @@ macro recall:   {m_rec:.4f}
     
     cm = confusion_matrix(all_labels, all_preds)
 
-    plt.figure(figsize=(8,8))
+    plt.figure(figsize=(12,8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
     disp.plot(xticks_rotation=45)
     plt.title(f"{split_name.capitalize()} Confusion Matrix")
@@ -127,11 +127,11 @@ macro recall:   {m_rec:.4f}
     # classification report
     report = classification_report(all_labels, all_preds, target_names=class_names, digits=4)
 
-    with open(os.path.join(exp_dir, f"{split_name}_classification_report.txt")):
+    with open(os.path.join(exp_dir, f"{split_name}_classification_report.txt"), "w") as f:
         f.write(report)
     print(report)
 
-    return acc, m_f1, m_rec, cm
+    return acc, m_f1, m_rec
 
 def main():
     # -- reproducibility -- #
@@ -255,6 +255,7 @@ total: {len(train_dataset) + len(val_dataset) + len(test_dataset)}
         val_loss = 0.0
         val_correct = 0
         val_total = 0
+        best_val_acc = 0.0
 
         with torch.no_grad():
             for images, labels, _ in val_loader:
