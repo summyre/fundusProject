@@ -38,18 +38,22 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
 
     all_preds = []
     all_labels = []
+    all_probs = []
 
     with torch.no_grad():
         for images, labels, _ in loader:
             images = images.to(device)
             outputs = model(images)
+            probs = torch.softmax(outputs, dim=1)
             preds = torch.argmax(outputs, dim=1)
 
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.numpy())
+            all_probs.extend(probs.cpu().numpy())
 
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
+    all_probs = np.array(all_probs)
 
     # accuracy
     acc = np.mean(all_preds == all_labels)
@@ -81,5 +85,5 @@ macro recall:   {m_rec:.4f}
     with open(os.path.join(exp_dir, f"{split_name}_classification_report.txt"), "w") as f:
         f.write(report)
     print(report)
-
+    
     return acc, m_f1, m_rec
