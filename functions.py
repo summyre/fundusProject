@@ -76,7 +76,7 @@ macro recall:   {m_rec:.4f}
     disp.plot(xticks_rotation=45)
     plt.title(f"{split_name.capitalize()} Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"))
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"), dpi=300, bbox_inches='tight')
     plt.show()
 
     # classification report
@@ -85,5 +85,43 @@ macro recall:   {m_rec:.4f}
     with open(os.path.join(exp_dir, f"{split_name}_classification_report.txt"), "w") as f:
         f.write(report)
     print(report)
-    
+
     return acc, m_f1, m_rec
+
+def plot_history(history, exp_dir, model_name):
+    epochs = range(1, len(history['train_loss']) + 1)
+
+    # -- loss curves -- #
+    plt.figure(figsize=(10,6))
+    plt.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
+    plt.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+    plt.xlabel("Epochs", fontsize=12)
+    plt.ylabel("Loss", fontsize=12)
+    plt.title(f"{model_name} - Training and Validation Loss", fontsize=14, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, 'loss_curves.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # -- accuracy curves -- #
+    plt.figure(figsize=(10,6))
+    plt.plot(epochs, history['train_acc'], 'b-', label='Training Accuracy', linewidth=2)
+    plt.plot(epochs, history['val_acc'], 'r-', label='Validation Accuracy', linewidth=2)
+    plt.xlabel("Epochs", fontsize=12)
+    plt.ylabel("Accuracy (%)", fontsize=12)
+    plt.title(f"{model_name} - Training and Validation Accuracy", fontsize=14, fontweight='bold')
+    plt.legend(fontsize=11)
+    plt.grid(True)
+
+    # add best validation accuracy annotation
+    best_val_acc = max(history['val_acc'])
+    best_epoch = history['val_acc'].index(best_val_acc) + 1
+    plt.annotate(f"Best Val Acc: {best_val_acc:.2f}%\n(Epoch {best_epoch})",
+                 xy=(best_epoch, best_val_acc),
+                 xytext=(best_epoch + 2, best_val_acc - 5),
+                 arrowprops=dict(arrowstyle='->', color='green', lw=1.5),
+                 bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, 'accuracy_curves.png'), dpi=300, bbox_inches='tight')
+    plt.close()
