@@ -1,5 +1,4 @@
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import transforms
 import torch
 from PIL import Image
@@ -45,6 +44,17 @@ class FundusDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
+        return image, label, class_name
+
+class TransformSubset(Subset):
+    def __init__(self, dataset, indices, transform=None):
+        super().__init__(dataset, indices)
+        self.transform = transform
+    
+    def __getitem__(self, idx):
+        image, label, class_name = self.dataset[self.indices[idx]]
+        if self.transform:
+            image = self.transform(image)
         return image, label, class_name
 
 # -- enhancements -- #

@@ -7,13 +7,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
 from torch.utils.data import random_split, Subset
-from dataset import FundusDataset, train_transform, val_transform, create_loaders
+from dataset import FundusDataset, train_transform, val_transform, create_loaders, TransformSubset
 from collections import Counter
 import pickle
 from datetime import datetime
 import json
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score
 from functions import EarlyStopping, evaluate_model
+
 # -- simple CNN definition -- #
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes=9):
@@ -82,27 +82,9 @@ def main():
     generator = torch.Generator().manual_seed(seed)
     train_indices, val_indices, test_indices = random_split(range(len(dataset)), [train_size, val_size, test_size], generator=generator)
 
-    # datasets with transforms
-    train_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=train_transform,
-        class_filter=baseline_classes
-    )
-    val_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=val_transform,
-        class_filter=baseline_classes
-    )
-    test_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=val_transform,
-        class_filter=baseline_classes
-    )
-
-    # apply splits
-    train_dataset = Subset(train_dataset, train_indices.indices)
-    val_dataset = Subset(val_dataset, val_indices.indices)
-    test_dataset = Subset(test_dataset, test_indices.indices)
+    train_dataset = TransformSubset(dataset, train_indices.indices, transform=train_transform)
+    val_dataset = TransformSubset(dataset, val_indices.indices, transform=val_transform)
+    test_dataset = TransformSubset(dataset, test_indices, transform=val_transform)
 
     print(f"""
 train size: {len(train_dataset)}

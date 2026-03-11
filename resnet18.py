@@ -2,12 +2,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
-from torch.utils.data import random_split, Subset
-import torchvision.transforms as transforms
+from torch.utils.data import random_split
 import matplotlib as plt
 import numpy as np
 import random
-from dataset import FundusDataset, create_loaders
+from dataset import FundusDataset, create_loaders, TransformSubset, train_transform, val_transform
 from functions import EarlyStopping, evaluate_model
 from collections import Counter
 import datetime
@@ -38,7 +37,8 @@ class BasicBlock(nn.Module):
         out += self.shortcut(x)
         out = self.relu(out)
         return out
-    
+
+# -- defining resnet18 -- #    
 class ResNet18(nn.Module):
     def __init__(self, num_classes=9):
         super(ResNet18, self).__init__()
@@ -72,7 +72,7 @@ class ResNet18(nn.Module):
         out = self.layer3(out)
         out = self.layer4(out)
         out = self.avgpool(out)
-        out = out.flatten(out, 1)
+        out = out.view(out.size(0), -1)
         out = self.fc(out)
         return out
 
@@ -89,26 +89,6 @@ def main():
     exp_dir = os.path.join("experiments", exp_name)
     os.makedirs(exp_dir, exist_ok=True)
 
-    # -- load and preprocess dataset -- #
-    transform_train = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.RandomCrop(32, padding=4),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean = [0.485, 0.456, 0.406],
-            std = [0.229, 0.224, 0.225]
-        )
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean = [0.485, 0.456, 0.406],
-            std = [0.229, 0.224, 0.225]
-        )
-    ])
-
     baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 
     dataset = FundusDataset(
@@ -123,25 +103,9 @@ def main():
     generator = torch.Generator().manual_seed(seed)
     train_indices, val_indices, test_indices = random_split(range(len(dataset)), [train_size, val_size, test_size], generator=generator)
 
-    train_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=transform_train,
-        class_filter=baseline_classes
-    )
-    val_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=transform_test,
-        class_filter=baseline_classes
-    )
-    test_dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=transform_test,
-        class_filter=baseline_classes
-    )
-
-    train_dataset = Subset(train_dataset, train_indices.indices)
-    val_dataset = Subset(val_dataset, val_indices.indices)
-    test_dataset = Subset(test_dataset, test_indices.indices)
+    train_dataset = TransformSubset(dataset, train_indices.indices, transform=train_transform)
+    val_dataset = TransformSubset(dataset, val_indices.indices, transform=val_transform)
+    test_dataset = TransformSubset(dataset, test_indices, transform=val_transform)
 
     train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
     
