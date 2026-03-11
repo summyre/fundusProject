@@ -2,54 +2,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib as plt
 import numpy as np
 import random
 from dataset import FundusDataset
-
-# -- reproducibility -- #
-seed = 42
-torch.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-np.random.seed(seed)
-random.seed(seed)
-
-# -- load and preprocess dataset -- #
-transform_train = transforms.Compose([
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomCrop(32, padding=4),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465),
-                         (0.2023, 0.1994, 0.2010))
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465),
-                         (0.2023, 0.1994, 0.2010))
-])
-
-baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
-
-dataset = dataset = FundusDataset(
-        root_dir=r"data/Original_Dataset",
-        transform=None,
-        class_filter=baseline_classes
-    )
-
-train_size = int(0.75 * len(dataset))
-test_size = len(dataset) - train_size
-generator = torch.Generator().manual_seed(seed)
-train_dataset, test_dataset = random_split(dataset, [train_size, test_size], generator=generator)
-
-train_dataset.dataset.transform = transform_train
-test_dataset.dataset.transform = transform_test
-
-train_loader = DataLoader(train_dataset, batch_sampler=128, shuffle=True, num_workers=2)
-test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False, num_workers=2)
 
 # -- defining residual block -- #
 class BasicBlock(nn.Module):
@@ -70,7 +29,7 @@ class BasicBlock(nn.Module):
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-        out = self.conv2(x)
+        out = self.conv2(out)
         out = self.bn2(out)
         out += self.shortcut(x)
         out = self.relu(out)
@@ -109,76 +68,139 @@ class ResNet18(nn.Module):
         out = self.layer3(out)
         out = self.layer4(out)
         out = self.avgpool(out)
-        out = out.view(out.size(0), -1)
+        out = out.flatten(out, 1)
         out = self.fc(out)
         return out
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ResNet18().to(device)
-print(model)
+def main():
+    # -- reproducibility -- #
+    seed = 42
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
-# -- defining loss function and optimiser --#
-criterion = nn.CrossEntropyLoss()
-optimiser = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+    # -- load and preprocess dataset -- #
+    transform_train = transforms.Compose([
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean = [0.485, 0.456, 0.406],
+            std = [0.229, 0.224, 0.225]
+        )
+    ])
 
-# -- training the model -- #
-num_epochs = 10
-train_losses , train_accs, test_accs = [], [], []
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean = [0.485, 0.456, 0.406],
+            std = [0.229, 0.224, 0.225]
+        )
+    ])
 
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    correct, total = 0, 0
-    for inputs, labels in train_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
-        optimiser.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimiser.step()
+    baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 
-        running_loss += loss.item() * inputs.size(0)
-        _, pred = outputs.max(1)
-        total += labels.size(0)
-        correct += pred.eq(labels).sum().item()
-    
-    train_loss = running_loss / len(train_loader.dataset)
-    train_acc = 100. * correct / total
-    train_losses.append(train_loss)
-    train_accs.append(train_acc)
+    dataset = FundusDataset(
+            root_dir=r"data/Original_Dataset",
+            transform=None,
+            class_filter=baseline_classes
+        )
 
-    model.eval()
-    correct, total = 0, 0
-    with torch.no_grad():
-        for inputs, labels in test_loader:
+    train_size = int(0.75 * len(dataset))
+    test_size = len(dataset) - train_size
+    generator = torch.Generator().manual_seed(seed)
+    train_indices, test_indices = random_split(range(len(dataset)), [train_size, test_size], generator=generator)
+
+    train_dataset = FundusDataset(
+        root_dir=r"data/Original_Dataset",
+        transform=transform_train,
+        class_filter=baseline_classes
+    )
+    test_dataset = FundusDataset(
+        root_dir=r"data/Original_Dataset",
+        transform=transform_test,
+        class_filter=baseline_classes
+    )
+
+    train_dataset = Subset(train_dataset, train_indices.indices)
+    test_dataset = Subset(test_dataset, test_indices.indices)
+
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=2, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False, num_workers=2, pin_memory=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = ResNet18().to(device)
+    print(model)
+
+    # -- defining loss function and optimiser --#
+    criterion = nn.CrossEntropyLoss()
+    optimiser = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+
+    # -- training the model -- #
+    num_epochs = 100
+    train_losses , train_accs, test_accs = [], [], []
+
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+        correct, total = 0, 0
+        for inputs, labels, _ in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
+            optimiser.zero_grad()
             outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimiser.step()
+
+            running_loss += loss.item() * inputs.size(0)
             _, pred = outputs.max(1)
-            totals += labels.size(0)
+            total += labels.size(0)
             correct += pred.eq(labels).sum().item()
-    
-    test_acc = 100. * correct / total
-    test_accs.append(test_acc)
+        
+        train_loss = running_loss / len(train_loader.dataset)
+        train_acc = 100. * correct / total
+        train_losses.append(train_loss)
+        train_accs.append(train_acc)
 
-    scheduler.step()
-    print(f"Epoch [{epoch+1}/{num_epochs}] Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}%")
+        model.eval()
+        correct, total = 0, 0
+        with torch.no_grad():
+            for inputs, labels, _ in test_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                _, pred = outputs.max(1)
+                total += labels.size(0)
+                correct += pred.eq(labels).sum().item()
+        
+        test_acc = 100. * correct / total
+        test_accs.append(test_acc)
 
-# -- plotting training loss and accuracy -- #
-plt.figure(figsize=(12,5))
-plt.subplot(1,2,1)
-plt.plot(train_losses, label='Train Loss')
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.title('Training Loss')
-plt.legend()
+        scheduler.step()
+        print(f"Epoch [{epoch+1}/{num_epochs}] Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}%")
 
-plt.subplot(1,2,2)
-plt.plot(train_accs, label='Train Accuracy')
-plt.plot(test_accs, label='Test Accuracy')
-plt.xlabel('Epochs')
-plt.ylabel('Accuracy (%)')
-plt.title('Accuracy')
-plt.legend()
+    # -- plotting training loss and accuracy -- #
+    plt.figure(figsize=(12,5))
+    plt.subplot(1,2,1)
+    plt.plot(train_losses, label='Train Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training Loss')
+    plt.legend()
 
-plt.show()
+    plt.subplot(1,2,2)
+    plt.plot(train_accs, label='Train Accuracy')
+    plt.plot(test_accs, label='Test Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Accuracy')
+    plt.legend()
+
+    plt.show()
+
+if __name__ == "__main__":
+    from multiprocessing import freeze_support
+    freeze_support()
+    main()

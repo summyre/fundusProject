@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
-from torch.utils.data import random_split
+from torch.utils.data import random_split, Subset
 from dataset import FundusDataset, train_transform, val_transform, create_loaders
 from collections import Counter
 import pickle
@@ -160,11 +160,29 @@ def main():
     val_size = int(0.15 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     generator = torch.Generator().manual_seed(seed)
-    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size], generator=generator)
+    train_indices, val_indices, test_indices = random_split(range(len(dataset)), [train_size, val_size, test_size], generator=generator)
 
-    train_dataset.dataset.transform = train_transform
-    val_dataset.dataset.transform = val_transform
-    test_dataset.dataset.transform = val_transform
+    # datasets with transforms
+    train_dataset = FundusDataset(
+        root_dir=r"data/Original_Dataset",
+        transform=train_transform,
+        class_filter=baseline_classes
+    )
+    val_dataset = FundusDataset(
+        root_dir=r"data/Original_Dataset",
+        transform=val_transform,
+        class_filter=baseline_classes
+    )
+    test_dataset = FundusDataset(
+        root_dir=r"data/Original_Dataset",
+        transform=val_transform,
+        class_filter=baseline_classes
+    )
+
+    # apply splits
+    train_dataset = Subset(train_dataset, train_indices.indices)
+    val_dataset = Subset(val_dataset, val_indices.indices)
+    test_dataset = Subset(test_dataset, test_indices.indices)
 
     print(f"""
 train size: {len(train_dataset)}
