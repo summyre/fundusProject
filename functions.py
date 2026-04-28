@@ -1,10 +1,10 @@
 import torch
 import numpy as np
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score, precision_score, roc_auc_score
 import matplotlib.pyplot as plt
 import os
 
-# -- early stopping definition -- #
+# -- early stopping definition -- # -- not needed rip
 class EarlyStopping:
     def __init__(self, patience=5, delta=0):
         self.patience = patience
@@ -48,7 +48,7 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
             preds = torch.argmax(outputs, dim=1)
 
             all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.numpy())
+            all_labels.extend(labels.cpu().numpy())     # not being coloured in??
             all_probs.extend(probs.cpu().numpy())
 
     all_preds = np.array(all_preds)
@@ -61,15 +61,19 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
     # macro metrics
     m_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     m_rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
+    m_prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
+    auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
 
     print(f"""
 {split_name.capitalize()} Results
-accuracy:       {acc:.4f}
-macro f1:       {m_f1:.4f}
-macro recall:   {m_rec:.4f}
+accuracy:           {acc:.4f}
+macro f1:           {m_f1:.4f}
+macro recall:       {m_rec:.4f}
+macro precision:    {m_prec:.4f}
+macro auc:          {auc:.4f}
 """)
     
-    cm = confusion_matrix(all_labels, all_preds)
+    cm = confusion_matrix(all_labels, all_preds, normalize='true')
 
     plt.figure(figsize=(12,8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)

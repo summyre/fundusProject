@@ -13,12 +13,11 @@ class FundusDataset(Dataset):
         self.samples = []
         self.class_to_idx = {}
         self.transform = transform
-        self.enhance = enhance
-
-        classes = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
 
         if class_filter:
             classes = [c for c in class_filter if c in classes]
+        else:
+            classes = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
 
         self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(classes)}
 
@@ -36,23 +35,22 @@ class FundusDataset(Dataset):
         class_name = os.path.basename(os.path.dirname(img_path))
         image = Image.open(img_path).convert("RGB")
 
-        # enhancements
-        if self.enhance:
-            image = apply_clahe(image)
-
         # transforms
         if self.transform:
             image = self.transform(image)
 
         return image, label, class_name
 
-class TransformSubset(Subset):
-    def __init__(self, dataset, indices, transform=None):
-        super().__init__(dataset, indices)
+class TransformDataset(Dataset):
+    def __init__(self, subset, transform=None):
+        self.subset = subset
         self.transform = transform
     
+    def __len__(self):
+        return len(self.subset)
+    
     def __getitem__(self, idx):
-        image, label, class_name = self.dataset[self.indices[idx]]
+        image, label, class_name = self.subset[idx]
         if self.transform:
             image = self.transform(image)
         return image, label, class_name
@@ -63,7 +61,7 @@ def apply_clahe(img):
     img = np.array(img)
 
     # convert to lab colour space
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
 
     # apply CLAHE to L channel
@@ -72,9 +70,13 @@ def apply_clahe(img):
 
     # merge back
     merged = cv2.merge((cl, a, b))
-    enhanced = cv2.cvtColor(merged, cv2.COLOR_Lab2BGR)
+    enhanced = cv2.cvtColor(merged, cv2.COLOR_Lab2RGB)
 
     return Image.fromarray(enhanced)
+
+class CLAHETransform:
+    def __call__(self, img):
+        return apply_clahe(img)
 
 
 # -- dataloaders -- #
@@ -109,6 +111,7 @@ def create_loaders(train_dataset, val_dataset, test_dataset, batch_size=32, pin_
 
 # -- transforms -- #
 train_transform = transforms.Compose([
+    CLAHETransform(),
     transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
