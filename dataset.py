@@ -73,9 +73,24 @@ def apply_clahe(img):
 
     return Image.fromarray(enhanced)
 
+# applying clahe probabilistically
 class CLAHETransform:
+    def __init__(self, p=0.5):
+        self.p = p
+
     def __call__(self, img):
-        return apply_clahe(img)
+        if np.random.rand() < self.p:
+            return apply_clahe(img)
+        return img
+    
+class AddGaussianNoise:
+    def __init__(self, mean=0.0, std=0.02):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        noise = torch.randn_like(tensor) * self.std + self.mean
+        return tensor + noise
 
 
 # -- dataloaders -- #
@@ -110,11 +125,19 @@ def create_loaders(train_dataset, val_dataset, test_dataset, batch_size=32, pin_
 
 # -- transforms -- #
 train_transform = transforms.Compose([
-    CLAHETransform(),
+    CLAHETransform(p=0.5),
     transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
+    transforms.ColorJitter(
+        brightness=0.2,
+        contrast=0.2,
+        saturation=0.2,
+        hue=0.2
+    ),
+    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.2)),
     transforms.ToTensor(),
+    AddGaussianNoise(std=0.01),
     transforms.Normalize(
         mean = [0.485, 0.456, 0.406],
         std = [0.229, 0.224, 0.225]
