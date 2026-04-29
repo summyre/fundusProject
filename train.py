@@ -82,6 +82,8 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
 
         print(f"Epoch: {epoch+1}/{num_epochs} | Time: {epoch_time:.3f}s | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f} | Val Loss: {val_loss:.4f}")
 
+        scheduler.step()
+
         # save model if val loss decreases -- early stopping
         if val_loss < best_loss:
             print(f"validation loss decreased ({best_loss:.4f} -> {val_loss}). saving model as {name}.pt")
@@ -98,8 +100,6 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         if no_improve >= patience:
             print("early stopping triggered")
             break
-
-        scheduler.step()
     
     return history
 
@@ -202,12 +202,13 @@ def main():
     # -- resnet18 -- #
     rn_model = resnet18(num_classes, pretrained=True).to(device)
     rn_optim = torch.optim.Adam(rn_model.parameters(), lr=1e-3)
+    rn_scheduler = optim.lr_scheduler.StepLR(rn_optim, step_size=30, gamma=0.1)
 
-    history_rn = train_model(rn_model, train_loader, val_loader, criterion, rn_optim, device, num_epochs, scheduler, "resnet18")
+    history_rn = train_model(rn_model, train_loader, val_loader, criterion, rn_optim, device, num_epochs, rn_scheduler, "resnet18")
 
     # load best model
     ckp = torch.load('resnet18.pt')
-    model.load_state_dict(ckp['model'])
+    rn_model.load_state_dict(ckp['model'])
     print("finished training")
 
     os.makedirs("resnet18", exist_ok=True)
@@ -217,11 +218,11 @@ def main():
     class_correct = [0] * num_classes
     class_total = [0] * num_classes
 
-    model.eval()
+    rn_model.eval()
     with torch.no_grad():
         for data, target, _ in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
+            output = rn_model(data)
             loss = criterion(output, target)
             test_loss += loss.item() * data.size(0)
             _, pred = torch.max(output, 1)
