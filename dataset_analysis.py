@@ -1,8 +1,6 @@
 import os
 import hashlib
-from collections import Counter
 import matplotlib.pyplot as plt
-from PIL import Image
 import torch
 
 data_root = r"data/Original_Dataset"

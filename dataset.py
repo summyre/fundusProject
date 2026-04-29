@@ -1,8 +1,7 @@
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch
 from PIL import Image
-import pandas as pd
 import os
 import cv2
 import numpy as np

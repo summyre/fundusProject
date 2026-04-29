@@ -1,8 +1,11 @@
 import torch
 import numpy as np
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score, precision_score, roc_auc_score
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+import seaborn as sns
 
 # -- early stopping definition -- # -- not needed rip
 class EarlyStopping:
@@ -74,13 +77,41 @@ macro auc:          {auc:.4f}
 """)
     
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
+    fig, ax = plt.subplots(figsize=(24,16))
 
-    plt.figure(figsize=(12,8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
-    disp.plot(xticks_rotation=45)
+    disp.plot(
+        ax=ax,
+        xticks_rotation=45,
+        cmap='viridis',
+        colorbar=True
+    )
+    
+    for text in disp.text_.ravel():
+        text.set_fontsize(10)
+    
+    ax.set_xticklabels(ax.get_xticklabels(), fontsize=12)
+    ax.set_yticklabels(ax.get_yticklabels(), fontsize=12)
+
+    plt.title(f"{split_name.capitalize()} Confusion Matrix")
+    plt.tight_layout(pad=3)
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"), dpi=300, bbox_inches='tight')
+
+    plt.figure(figsize=(24,16))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt='.2f',
+        cmap='viridis',
+        xticklabels=class_names,
+        yticklabels=class_names,
+        annot_kws={"size": 10}
+    )
+    plt.xticks(rotation=45, ha="right", fontsize=12)
+    plt.yticks(rotation=0, fontsize=12)
     plt.title(f"{split_name.capitalize()} Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix_sns.png"), dpi=300, bbox_inches='tight')
     plt.show()
 
     # classification report

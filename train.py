@@ -31,7 +31,7 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         'val_acc': []
     }
 
-    for epoch in range(num_epochs):
+    for epoch in range(num_epochs): # loop over the dataset multiple times
         start_time = time.time()
         train_loss, train_correct, train_total = 0.0, 0, 0
         val_loss, val_correct, val_total = 0.0, 0, 0
@@ -39,8 +39,8 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         # training
         model.train()
         for data, target, _ in train_loader:
-            data, target = data.to(device), target.to(device)
-            optimiser.zero_grad()
+            data, target = data.to(device), target.to(device)   # get the inputs
+            optimiser.zero_grad()   # set the parameter gradients to zero
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
@@ -192,10 +192,10 @@ def main():
 
     # print test results
     test_loss /= len(test_loader.dataset)
-    print(f"test loss: {test_loss:.6f}")
+    print(f"customcnn test loss: {test_loss:.6f}")
 
     overall_acc = 100. * np.sum(class_correct) / np.sum(class_total)
-    print(f"\ntest accuracy (overall): {overall_acc:.2f}%")
+    print(f"\ncustomcnn test accuracy (overall): {overall_acc:.2f}%")
 
     evaluate_model(model, test_loader, device, baseline_classes, exp_dir="custom", split_name="test")
 
@@ -234,12 +234,12 @@ def main():
 
     # print test results
     test_loss /= len(test_loader.dataset)
-    print(f"test loss: {test_loss:.6f}")
+    print(f"resnet18 test loss: {test_loss:.6f}")
 
     overall_acc = 100. * np.sum(class_correct) / np.sum(class_total)
-    print(f"\ntest accuracy (overall): {overall_acc:.2f}%")
+    print(f"\nresnet18 test accuracy (overall): {overall_acc:.2f}%")
 
-    evaluate_model(model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
+    evaluate_model(rn_model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
 
 if __name__ == '__main__':
     from multiprocessing import freeze_support

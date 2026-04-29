@@ -9,6 +9,8 @@ visuals/
 checkpoints/
 experiments/
 expmetrics/
+custom/
+resnet18/
 
 *.pt
 *.pth
