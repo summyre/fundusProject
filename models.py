@@ -43,7 +43,10 @@ class Custom(nn.Module):
         return x
     
 def resnet18(num_classes, pretrained=True):
-    model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    if pretrained:
+        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    else:
+        model = models.resnet18(weights=None)
 
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, num_classes)

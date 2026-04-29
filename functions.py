@@ -48,7 +48,7 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
             preds = torch.argmax(outputs, dim=1)
 
             all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())     # not being coloured in??
+            all_labels.extend(labels.cpu().numpy()) 
             all_probs.extend(probs.cpu().numpy())
 
     all_preds = np.array(all_preds)
@@ -119,13 +119,13 @@ def plot_history(history, exp_dir, model_name):
     plt.grid(True)
 
     # add best validation accuracy annotation
-    best_val_acc = max(history['val_acc'])
-    best_epoch = history['val_acc'].index(best_val_acc) + 1
-    plt.annotate(f"Best Val Acc: {best_val_acc:.2f}%\n(Epoch {best_epoch})",
-                 xy=(best_epoch, best_val_acc),
-                 xytext=(best_epoch + 2, best_val_acc - 5),
-                 arrowprops=dict(arrowstyle='->', color='green', lw=1.5),
-                 bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
+    #best_val_acc = max(history['val_acc'])
+    #best_epoch = history['val_acc'].index(best_val_acc) + 1
+    #plt.annotate(f"Best Val Acc: {best_val_acc:.2f}%\n(Epoch {best_epoch})",
+    #             xy=(best_epoch, best_val_acc),
+    #             xytext=(best_epoch + 2, best_val_acc - 5),
+    #             arrowprops=dict(arrowstyle='->', color='green', lw=1.5),
+    #             bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, 'accuracy_curves.png'), dpi=300, bbox_inches='tight')
     plt.close()

@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as f
-from torch.utils.data import random_split, Subset
+from torch.utils.data import Subset
 from dataset import FundusDataset, create_loaders, TransformDataset, train_transform, val_transform
 from functions import plot_history, evaluate_model
 from models import Custom, resnet18
@@ -13,9 +12,7 @@ import os
 from collections import Counter
 
 batch_size = 128
-valid_size = 0.2
 num_epochs = 100
-num_workers = 4
 
 baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 

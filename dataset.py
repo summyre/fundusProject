@@ -14,10 +14,10 @@ class FundusDataset(Dataset):
         self.class_to_idx = {}
         self.transform = transform
 
+        classes = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
+
         if class_filter:
             classes = [c for c in class_filter if c in classes]
-        else:
-            classes = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
 
         self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(classes)}
 
