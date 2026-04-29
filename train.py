@@ -5,21 +5,22 @@ from torch.utils.data import Subset
 from dataset import FundusDataset, create_loaders, TransformDataset, train_transform, val_transform
 from functions import plot_history, evaluate_model
 from models import Custom, resnet18
+from sklearn.metrics import f1_score
 import numpy as np
 import time
 import random
 import os
+import optuna
 from collections import Counter
 
-batch_size = 128
+batch_size = 128    #???
 num_epochs = 100
 
 baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 
 # -- define training loop -- #
-def train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs, scheduler, name):
+def train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs, scheduler, name, trial=None):
     model.to(device)
-
     patience = 5
     no_improve = 0
     best_loss = float("inf")
@@ -72,20 +73,22 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         train_acc = train_correct / train_total
         val_acc = val_correct / val_total
 
+        # optuna pruning
+        if trial is not None:
+            trial.report(val_acc, epoch)
+
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
         end_time = time.time()
         epoch_time = end_time - start_time
-
-        history["train_loss"].append(train_loss)
-        history["train_acc"].append(train_acc)
-        history["val_loss"].append(val_loss)
-        history["val_acc"].append(val_acc)
 
         print(f"Epoch: {epoch+1}/{num_epochs} | Time: {epoch_time:.3f}s | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f} | Val Loss: {val_loss:.4f}")
 
         scheduler.step()
 
         # save model if val loss decreases -- early stopping
-        if val_loss < best_loss:
+        if trial is None and val_loss < best_loss:
             print(f"validation loss decreased ({best_loss:.4f} -> {val_loss}). saving model as {name}.pt")
             torch.save({
                 'model': model.state_dict(),
@@ -100,8 +103,53 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         if no_improve >= patience:
             print("early stopping triggered")
             break
+
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
     
     return history
+
+def run(params, train_dataset, val_dataset, device, class_weights, trial=None):
+    lr = params["lr"]
+    num_classes = len(baseline_classes)
+
+    train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, val_dataset, batch_size=params["batch_size"])
+
+    if params["model"] == "resnet":
+        model = resnet18(num_classes, pretrained=True)
+    else:
+        model = Custom(num_classes)
+
+    model.dropout = nn.Dropout(params["dropout"])
+    model.to(device)
+
+    if params["optimiser"] == "adam":
+        optimiser = optim.Adam(model.parameters(), lr=lr, weight_decay=params["weight_decay"])
+    else:
+        optimiser = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+
+    scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=5, gamma=0.1)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs=15, scheduler=scheduler, name="temp", trial=trial)
+
+    # evaluate f1
+    all_preds = []
+    all_labels = []
+
+    model.eval()
+    with torch.no_grad():
+        for data, target, _ in val_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            preds = torch.argmax(output, dim=1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(target.cpu().numpy())
+
+    return f1_score(all_labels, all_preds, average="macro")
 
 def main():
     # -- reproducibility -- #
@@ -135,8 +183,6 @@ def main():
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = Custom(num_classes)
-
     # weighted loss criterion to handle class imbalance
     train_labels = []
     
@@ -155,13 +201,44 @@ def main():
         [total_samples / (num_classes * class_counts.get(i, 1)) for i in range(num_classes)],
         dtype=torch.float
     )
-    
     class_weights = class_weights.to(device)
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimiser = optim.Adam(model.parameters(), lr=1e-3)
+    def objective(trial):
+        params = {
+            "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+            "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128]),
+            "dropout": trial.suggest_float("dropout", 0.3, 0.7),
+            "optimiser": trial.suggest_categorical("optimiser", ["adam", "sgd"]),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
+            "model": trial.suggest_categorical("model", ["custom", "resnet"])
+        }
+
+        return run(params, train_dataset, val_dataset, device, trial)
+
+    print("\nstarting hyperparameter tuning\n")
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=20)
+
+    print("\nbest trial:")
+    print(f"value: {study.best_value}")
+    print(f"params: {study.best_params}")
+
+    best_params = study.best_params
+
+    train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=best_params["batch_size"])
+
+    model = Custom(num_classes)
+    model.dropout = nn.Dropout(best_params["dropout"])
+    model.to(device)
+
+    if best_params["optimiser"] == "adam":
+        optimiser = optim.Adam(model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+    else:
+        optimiser = optim.SGD(model.parameters(), lr=best_params["lr"], momentum=0.9)
+
     scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
-    
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+
     history_cnn = train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs, scheduler, "custom")
     
     # load best model
