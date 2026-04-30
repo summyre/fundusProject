@@ -152,11 +152,14 @@ def main():
     total_samples = len(train_labels)
 
     class_weights = torch.tensor(
-        [total_samples / (num_classes * class_counts.get(i, 1)) for i in range(num_classes)],
+        [np.sqrt(total_samples / (num_classes * class_counts.get(i, 1))) for i in range(num_classes)],
         dtype=torch.float
     )
     
+    class_weights = torch.clamp(class_weights, max=2.5)
     class_weights = class_weights.to(device)
+
+    print(class_weights)
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimiser = optim.Adam(model.parameters(), lr=1e-3)
