@@ -203,6 +203,8 @@ def main():
     )
     class_weights = class_weights.to(device)
 
+    print(class_weights)
+
     def objective(trial):
         params = {
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
@@ -213,7 +215,7 @@ def main():
             "model": trial.suggest_categorical("model", ["custom", "resnet"])
         }
 
-        return run(params, train_dataset, val_dataset, device, trial)
+        return run(params, train_dataset, val_dataset, device, class_weights, trial)
 
     print("\nstarting hyperparameter tuning\n")
     study = optuna.create_study(direction="maximize")
