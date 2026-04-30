@@ -13,7 +13,6 @@ import os
 import optuna
 from collections import Counter
 
-batch_size = 128    #???
 num_epochs = 100
 
 baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
@@ -115,12 +114,9 @@ def run(params, train_dataset, val_dataset, device, class_weights, trial=None):
     lr = params["lr"]
     num_classes = len(baseline_classes)
 
-    train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, val_dataset, batch_size=params["batch_size"])
+    train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, val_dataset, batch_size=128)
 
-    if params["model"] == "resnet":
-        model = resnet18(num_classes, pretrained=True)
-    else:
-        model = Custom(num_classes)
+    model = resnet18(num_classes, pretrained=True)
 
     model.dropout = nn.Dropout(params["dropout"])
     model.to(device)
@@ -198,9 +194,11 @@ def main():
     total_samples = len(train_labels)
 
     class_weights = torch.tensor(
-        [total_samples / (num_classes * class_counts.get(i, 1)) for i in range(num_classes)],
+        [np.sqrt(total_samples / (num_classes * class_counts.get(i, 1))) for i in range(num_classes)],
         dtype=torch.float
     )
+    
+    class_weights = torch.clamp(class_weights, max=2.5)
     class_weights = class_weights.to(device)
 
     print(class_weights)
@@ -208,15 +206,14 @@ def main():
     def objective(trial):
         params = {
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128]),
             "dropout": trial.suggest_float("dropout", 0.3, 0.7),
             "optimiser": trial.suggest_categorical("optimiser", ["adam", "sgd"]),
-            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
-            "model": trial.suggest_categorical("model", ["custom", "resnet"])
+            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
         }
 
         return run(params, train_dataset, val_dataset, device, class_weights, trial)
 
+    # hyperparameter tuning with fixed class imbalance handling
     print("\nstarting hyperparameter tuning\n")
     study = optuna.create_study(direction="maximize")
     study.optimize(objective, n_trials=20)
@@ -227,60 +224,13 @@ def main():
 
     best_params = study.best_params
 
-    train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=best_params["batch_size"])
+    train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
-    model = Custom(num_classes)
-    model.dropout = nn.Dropout(best_params["dropout"])
-    model.to(device)
-
-    if best_params["optimiser"] == "adam":
-        optimiser = optim.Adam(model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
-    else:
-        optimiser = optim.SGD(model.parameters(), lr=best_params["lr"], momentum=0.9)
-
-    scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
-
-    history_cnn = train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs, scheduler, "custom")
-    
-    # load best model
-    ckp = torch.load('custom.pt')
-    model.load_state_dict(ckp['model'])
-    print("finished training")
-
-    os.makedirs("custom", exist_ok=True)
-    plot_history(history_cnn, exp_dir="custom", model_name="customCNN")
-
-    test_loss = 0.0
-    class_correct = [0] * num_classes
-    class_total = [0] * num_classes
-
-    model.eval()
-    with torch.no_grad():
-        for data, target, _ in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            loss = criterion(output, target)
-            test_loss += loss.item() * data.size(0)
-            _, pred = torch.max(output, 1)
-            correct = pred.eq(target.view_as(pred))
-            for i in range(len(target)):
-                label = target[i].item()
-                class_correct[label] += correct[i].item()
-                class_total[label] += 1
-
-    # print test results
-    test_loss /= len(test_loader.dataset)
-    print(f"customcnn test loss: {test_loss:.6f}")
-
-    overall_acc = 100. * np.sum(class_correct) / np.sum(class_total)
-    print(f"\ncustomcnn test accuracy (overall): {overall_acc:.2f}%")
-
-    evaluate_model(model, test_loader, device, baseline_classes, exp_dir="custom", split_name="test")
 
     # -- resnet18 -- #
     rn_model = resnet18(num_classes, pretrained=True).to(device)
-    rn_optim = torch.optim.Adam(rn_model.parameters(), lr=1e-3)
+    rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
     rn_scheduler = optim.lr_scheduler.StepLR(rn_optim, step_size=30, gamma=0.1)
 
     history_rn = train_model(rn_model, train_loader, val_loader, criterion, rn_optim, device, num_epochs, rn_scheduler, "resnet18")
