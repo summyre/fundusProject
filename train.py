@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Subset
 from dataset import FundusDataset, create_loaders, TransformDataset, train_transform, val_transform
 from functions import plot_history, evaluate_model
-from models import Custom, resnet18
+from models import resnet18
 from sklearn.metrics import f1_score
 import numpy as np
 import time
@@ -14,6 +14,7 @@ import optuna
 from collections import Counter
 
 num_epochs = 100
+tuning = False
 
 baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
 
@@ -110,15 +111,13 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
     
     return history
 
-def run(params, train_dataset, val_dataset, device, class_weights, trial=None):
+def run(params, train_dataset, val_dataset, test_dataset, device, class_weights, trial=None):
     lr = params["lr"]
     num_classes = len(baseline_classes)
 
-    train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, val_dataset, batch_size=128)
+    train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
-    model = resnet18(num_classes, pretrained=True)
-
-    model.dropout = nn.Dropout(params["dropout"])
+    model = resnet18(num_classes, pretrained=True, dropout=params["dropout"])
     model.to(device)
 
     if params["optimiser"] == "adam":
@@ -202,35 +201,37 @@ def main():
     class_weights = class_weights.to(device)
 
     print(class_weights)
-
-    def objective(trial):
-        params = {
-            "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "dropout": trial.suggest_float("dropout", 0.3, 0.7),
-            "optimiser": trial.suggest_categorical("optimiser", ["adam", "sgd"]),
-            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
-        }
-
-        return run(params, train_dataset, val_dataset, device, class_weights, trial)
-
-    # hyperparameter tuning with fixed class imbalance handling
-    print("\nstarting hyperparameter tuning\n")
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=20)
-
-    print("\nbest trial:")
-    print(f"value: {study.best_value}")
-    print(f"params: {study.best_params}")
-
-    best_params = study.best_params
-
-    train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
-
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    # -- resnet18 -- #
-    rn_model = resnet18(num_classes, pretrained=True).to(device)
-    rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+    if tuning:
+        def objective(trial):
+            params = {
+                "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+                "dropout": trial.suggest_float("dropout", 0.3, 0.7),
+                "optimiser": trial.suggest_categorical("optimiser", ["adam", "sgd"]),
+                "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
+            }
+
+            return run(params, train_dataset, val_dataset, test_dataset, device, class_weights, trial)
+
+        # hyperparameter tuning with fixed class imbalance handling
+        print("\nstarting hyperparameter tuning\n")
+        study = optuna.create_study(direction="maximize")
+        study.optimize(objective, n_trials=20)
+
+        print("\nbest trial:")
+        print(f"value: {study.best_value}")
+        print(f"params: {study.best_params}")
+
+        best_params = study.best_params
+
+        # -- resnet18 -- #
+        rn_model = resnet18(num_classes, pretrained=True, dropout=best_params["dropout"]).to(device)
+        rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+    else:
+        rn_model = resnet18(num_classes, pretrained=True, dropout=0.3).to(device)
+        rn_optim = torch.optim.Adam(rn_model.parameters(), lr=2e-4, weight_decay=1e-5)
+        
     rn_scheduler = optim.lr_scheduler.StepLR(rn_optim, step_size=30, gamma=0.1)
 
     history_rn = train_model(rn_model, train_loader, val_loader, criterion, rn_optim, device, num_epochs, rn_scheduler, "resnet18")

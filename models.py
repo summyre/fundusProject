@@ -42,13 +42,18 @@ class Custom(nn.Module):
         x = self.fc3(x)
         return x
     
-def resnet18(num_classes, pretrained=True):
+def resnet18(num_classes, pretrained=True, dropout=0.0):
     if pretrained:
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     else:
         model = models.resnet18(weights=None)
 
     num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, num_classes)
+    model.fc = nn.Sequential(
+        nn.Linear(num_ftrs, 512),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(512, num_classes)
+    )
 
     return model
