@@ -1,6 +1,8 @@
 import torch
 import numpy as np
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, f1_score, recall_score, precision_score, roc_auc_score
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import (confusion_matrix, ConfusionMatrixDisplay, classification_report, 
+                             f1_score, recall_score, precision_score, roc_auc_score, roc_curve)
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -39,6 +41,9 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
     m_prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
     auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
 
+    y_true = label_binarize(all_labels, classes=np.arange(len(class_names)))
+    y_score = all_probs
+
     print(f"""
 {split_name.capitalize()} Results
 accuracy:           {acc:.4f}
@@ -69,6 +74,7 @@ macro auc:          {auc:.4f}
     plt.tight_layout(pad=3)
     plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"), dpi=300, bbox_inches='tight')
 
+    # confusion matrix with sns
     plt.figure(figsize=(24,16))
     sns.heatmap(
         cm,
@@ -84,6 +90,23 @@ macro auc:          {auc:.4f}
     plt.title(f"{split_name.capitalize()} Confusion Matrix")
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix_sns.png"), dpi=300, bbox_inches='tight')
+
+    # per-class roc
+    plt.figure(figsize=(10,8))
+    for i, class_name in enumerate(class_names):
+        fpr, tpr, _ = roc_curve(y_true[:,i], y_score[:,i])
+        roc_auc = auc(fpr, tpr)
+
+        plt.plot(fpr, tpr, label=f"{class_name} (AUC = {roc_auc:.2f})")
+    
+    plt.plot([0,1], [0,1], 'k--')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(f"{split_name.capitalize()} ROC Curves")
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_roc_curves.png"))
+    plt.close()
 
     # classification report
     report = classification_report(all_labels, all_preds, target_names=class_names, digits=4)
@@ -119,15 +142,6 @@ def plot_history(history, exp_dir, model_name):
     plt.title(f"{model_name} - Training and Validation Accuracy", fontsize=14, fontweight='bold')
     plt.legend(fontsize=11)
     plt.grid(True)
-
-    # add best validation accuracy annotation
-    #best_val_acc = max(history['val_acc'])
-    #best_epoch = history['val_acc'].index(best_val_acc) + 1
-    #plt.annotate(f"Best Val Acc: {best_val_acc:.2f}%\n(Epoch {best_epoch})",
-    #             xy=(best_epoch, best_val_acc),
-    #             xytext=(best_epoch + 2, best_val_acc - 5),
-    #             arrowprops=dict(arrowstyle='->', color='green', lw=1.5),
-    #             bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7))
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, 'accuracy_curves.png'), dpi=300, bbox_inches='tight')
     plt.close()
