@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Subset
 from dataset import FundusDataset, create_loaders, TransformDataset, train_transform, val_transform
-from functions import plot_history, evaluate_model
+from functions import plot_history, evaluate_model, generate_gradcam
 from models import resnet18
 from sklearn.metrics import f1_score
 import numpy as np
@@ -231,7 +231,7 @@ def main():
     else:
         rn_model = resnet18(num_classes, pretrained=True, dropout=0.3).to(device)
         rn_optim = torch.optim.Adam(rn_model.parameters(), lr=2e-4, weight_decay=1e-5)
-        
+
     rn_scheduler = optim.lr_scheduler.StepLR(rn_optim, step_size=30, gamma=0.1)
 
     history_rn = train_model(rn_model, train_loader, val_loader, criterion, rn_optim, device, num_epochs, rn_scheduler, "resnet18")
@@ -270,6 +270,8 @@ def main():
     print(f"\nresnet18 test accuracy (overall): {overall_acc:.2f}%")
 
     evaluate_model(rn_model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
+
+    generate_gradcam(rn_model, test_loader, device, exp_dir="resnet18/gradcam", class_names=baseline_classes, num_images=50)
 
 if __name__ == '__main__':
     from multiprocessing import freeze_support

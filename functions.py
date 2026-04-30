@@ -2,12 +2,16 @@ import torch
 import numpy as np
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import (confusion_matrix, ConfusionMatrixDisplay, classification_report, 
-                             f1_score, recall_score, precision_score, roc_auc_score, roc_curve)
+                             f1_score, recall_score, precision_score, roc_auc_score, roc_curve,
+                             precision_recall_curve, average_precision_score)
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
+import cv2
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
 
 # -- evaluate model function -- #
 def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"):
@@ -39,7 +43,7 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
     m_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     m_rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
     m_prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
-    auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
+    o_auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
 
     y_true = label_binarize(all_labels, classes=np.arange(len(class_names)))
     y_score = all_probs
@@ -50,7 +54,7 @@ accuracy:           {acc:.4f}
 macro f1:           {m_f1:.4f}
 macro recall:       {m_rec:.4f}
 macro precision:    {m_prec:.4f}
-macro auc:          {auc:.4f}
+macro auc:          {o_auc:.4f}
 """)
     
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
@@ -95,7 +99,7 @@ macro auc:          {auc:.4f}
     plt.figure(figsize=(10,8))
     for i, class_name in enumerate(class_names):
         fpr, tpr, _ = roc_curve(y_true[:,i], y_score[:,i])
-        roc_auc = auc(fpr, tpr)
+        roc_auc = o_auc(fpr, tpr)
 
         plt.plot(fpr, tpr, label=f"{class_name} (AUC = {roc_auc:.2f})")
     
@@ -106,6 +110,22 @@ macro auc:          {auc:.4f}
     plt.legend(loc="lower right")
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, f"{split_name}_roc_curves.png"))
+    plt.close()
+
+    # precision-recall curves
+    plt.figure(figsize=(10,8))
+    for i, class_name in enumerate(class_names):
+        prec, rec, _ = precision_recall_curve(y_true[:,i], y_score[:,i])
+        ap = average_precision_score(y_true[:,i], y_score[:,i])
+
+        plt.plot(rec, prec, label=f"{class_name} (AP = {ap:.2f})")
+    
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(f"{split_name.capitalize()} Precision-Recall Curves")
+    plt.legend(loc="lower left")
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, f"{split_name}_pr_curves.png"))
     plt.close()
 
     # classification report
@@ -145,3 +165,42 @@ def plot_history(history, exp_dir, model_name):
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, 'accuracy_curves.png'), dpi=300, bbox_inches='tight')
     plt.close()
+
+def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20):
+    model.eval()
+    os.makedirs(exp_dir, exist_ok=True)
+
+    target_layers = [model.layer4[-1]]
+    cam = GradCAM(model=model, target_layers=target_layers)
+
+    count = 0
+
+    for images,labels, paths in loader:
+        images = images.to(device)
+
+        for i in range(images.size(0)):
+            if count >= num_images:
+                return
+            
+            input_tensor = images[i].unsqueeze(0)
+            output = model(input_tensor)
+            pred = torch.argmax(output, dim=1).item()
+            true = labels[i].item()
+
+            folder = "correct" if pred == true else "incorrect"
+            class_name = class_names[true]
+            path = os.path.join(exp_dir, folder, class_name)
+            os.makedirs(path, exist_ok=True)
+
+            # generate CAM
+            grayscale_cam = cam(input_tensor=input_tensor)[0]
+
+            # convert image back to numpy (for overlay)
+            img = images[i].cpu().permute(1,2,0).numpy()
+            img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+
+            cam_img = show_cam_on_image(img, grayscale_cam, use_rgb=True)
+
+            filename = f"{count}_pred-{class_names[pred]}.png"
+            cv2.imwrite(os.path.join(path, filename), cam_img)
+            count += 1
