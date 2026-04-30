@@ -12,6 +12,10 @@ import seaborn as sns
 import cv2
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
+from collections import defaultdict
+
+class_counter = defaultdict(int)
+max_per_class = 5
 
 # -- evaluate model function -- #
 def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"):
@@ -173,19 +177,22 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
     target_layers = [model.layer4[-1]]
     cam = GradCAM(model=model, target_layers=target_layers)
 
-    count = 0
-
     for images,labels, paths in loader:
         images = images.to(device)
 
         for i in range(images.size(0)):
-            if count >= num_images:
+            if class_counter >= num_images:
                 return
             
             input_tensor = images[i].unsqueeze(0)
             output = model(input_tensor)
             pred = torch.argmax(output, dim=1).item()
+            probs = torch.softmax(output, dim=1)
+            confidence = probs[0, pred].item()
             true = labels[i].item()
+
+            if class_counter[true] >= max_per_class:
+                continue
 
             folder = "correct" if pred == true else "incorrect"
             class_name = class_names[true]
@@ -201,6 +208,6 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
 
             cam_img = show_cam_on_image(img, grayscale_cam, use_rgb=True)
 
-            filename = f"{count}_pred-{class_names[pred]}.png"
+            filename = f"{class_counter}_true-{class_names[true]}_pred-{class_names[pred]}_conf-{confidence:.2f}.png"
             cv2.imwrite(os.path.join(path, filename), cam_img)
-            count += 1
+            class_counter[true] += 1
