@@ -4,6 +4,7 @@ from sklearn.preprocessing import label_binarize
 from sklearn.metrics import (confusion_matrix, ConfusionMatrixDisplay, classification_report, 
                              f1_score, recall_score, precision_score, roc_auc_score, roc_curve,
                              precision_recall_curve, average_precision_score)
+from sklearn.metrics import auc as fn_auc
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -47,7 +48,7 @@ def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"
     m_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     m_rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
     m_prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
-    o_auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
+    auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
 
     y_true = label_binarize(all_labels, classes=np.arange(len(class_names)))
     y_score = all_probs
@@ -58,7 +59,7 @@ accuracy:           {acc:.4f}
 macro f1:           {m_f1:.4f}
 macro recall:       {m_rec:.4f}
 macro precision:    {m_prec:.4f}
-macro auc:          {o_auc:.4f}
+macro auc:          {auc:.4f}
 """)
     
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
@@ -103,7 +104,7 @@ macro auc:          {o_auc:.4f}
     plt.figure(figsize=(10,8))
     for i, class_name in enumerate(class_names):
         fpr, tpr, _ = roc_curve(y_true[:,i], y_score[:,i])
-        roc_auc = o_auc(fpr, tpr)
+        roc_auc = fn_auc(fpr, tpr)
 
         plt.plot(fpr, tpr, label=f"{class_name} (AUC = {roc_auc:.2f})")
     
