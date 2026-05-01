@@ -85,16 +85,15 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
 
         print(f"Epoch: {epoch+1}/{num_epochs} | Time: {epoch_time:.3f}s | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f} | Val Loss: {val_loss:.4f}")
 
-        scheduler.step()
-
         # save model if val loss decreases -- early stopping
-        if trial is None and val_loss < best_loss:
+        if val_loss < best_loss:
             print(f"validation loss decreased ({best_loss:.4f} -> {val_loss}). saving model as {name}.pt")
-            torch.save({
-                'model': model.state_dict(),
-                'optimiser': optimiser.state_dict(),
-                'epoch': epoch
-            }, f'{name}.pt')
+            if trial is None:
+                torch.save({
+                    'model': model.state_dict(),
+                    'optimiser': optimiser.state_dict(),
+                    'epoch': epoch
+                }, f'{name}.pt')
             best_loss = val_loss
             no_improve = 0
         else:
@@ -103,6 +102,8 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         if no_improve >= patience:
             print("early stopping triggered")
             break
+
+        scheduler.step()
 
         history["train_loss"].append(train_loss)
         history["train_acc"].append(train_acc)
@@ -227,7 +228,11 @@ def main():
 
         # -- resnet18 -- #
         rn_model = resnet18(num_classes, pretrained=True, dropout=best_params["dropout"]).to(device)
-        rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+
+        if best_params["optimiser"] == "adam":
+            rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+        else:
+            rn_optim = optim.SGD(rn_model.parameters(), lr=best_params["lr"], momentum=0.9)
     else:
         rn_model = resnet18(num_classes, pretrained=True, dropout=0.3).to(device)
         rn_optim = torch.optim.Adam(rn_model.parameters(), lr=2e-4, weight_decay=1e-5)
@@ -239,6 +244,7 @@ def main():
     # load best model
     ckp = torch.load('resnet18.pt')
     rn_model.load_state_dict(ckp['model'])
+    print(f"best epoch: {ckp['epoch']}")
     print("finished training")
 
     os.makedirs("resnet18", exist_ok=True)
@@ -264,10 +270,10 @@ def main():
 
     # print test results
     test_loss /= len(test_loader.dataset)
-    print(f"resnet18 test loss: {test_loss:.6f}")
+    print(f"resnet18 test loss: {test_loss:.4f}")
 
-    overall_acc = 100. * np.sum(class_correct) / np.sum(class_total)
-    print(f"\nresnet18 test accuracy (overall): {overall_acc:.2f}%")
+    overall_acc = np.sum(class_correct) / np.sum(class_total)
+    print(f"\nresnet18 test accuracy (overall): {overall_acc:.4f}%")
 
     evaluate_model(rn_model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
 

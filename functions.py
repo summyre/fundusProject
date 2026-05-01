@@ -137,6 +137,11 @@ macro auc:          {auc:.4f}
         f.write(report)
     print(report)
 
+    # saving predictions
+    np.save(os.path.join(exp_dir, "preds.npy"), all_preds)
+    np.save(os.path.join(exp_dir, "labels.npy"), all_labels)
+    np.save(os.path.join(exp_dir, "probs.npy"), all_probs)
+
     return acc, m_f1, m_rec
 
 def plot_history(history, exp_dir, model_name):
@@ -175,7 +180,7 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
     model.eval()
     os.makedirs(exp_dir, exist_ok=True)
 
-    target_layers = [model.layer4[-1]]
+    target_layers = [model.layer4[-1]] if hasattr(model, "layer4") else [model.conv3[-1]]
     cam = GradCAM(model=model, target_layers=target_layers)
 
     for images,labels, paths in loader:
