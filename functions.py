@@ -15,9 +15,6 @@ from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from collections import defaultdict
 
-class_counter = defaultdict(int)
-max_per_class = 5
-
 # -- evaluate model function -- #
 def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"):
     model.eval()
@@ -172,6 +169,9 @@ def plot_history(history, exp_dir, model_name):
     plt.close()
 
 def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20):
+    class_counter = defaultdict(int)
+    max_per_class = num_images // len(class_names)
+
     model.eval()
     os.makedirs(exp_dir, exist_ok=True)
 
@@ -182,7 +182,7 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
         images = images.to(device)
 
         for i in range(images.size(0)):
-            if class_counter >= num_images:
+            if sum(class_counter.values()) >= num_images:
                 return
             
             input_tensor = images[i].unsqueeze(0)
@@ -209,6 +209,6 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
 
             cam_img = show_cam_on_image(img, grayscale_cam, use_rgb=True)
 
-            filename = f"{class_counter}_true-{class_names[true]}_pred-{class_names[pred]}_conf-{confidence:.2f}.png"
+            filename = f"{class_counter[true]}_true-{class_names[true]}_pred-{class_names[pred]}_conf-{confidence:.2f}.png"
             cv2.imwrite(os.path.join(path, filename), cam_img)
             class_counter[true] += 1
