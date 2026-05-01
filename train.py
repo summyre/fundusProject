@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Subset
 from dataset import FundusDataset, create_loaders, TransformDataset, train_transform, val_transform
 from functions import plot_history, evaluate_model, generate_gradcam
-from models import resnet18
+from models import resnet18, set_trainable_layers
 from sklearn.metrics import f1_score
 import numpy as np
 import time
@@ -121,10 +121,13 @@ def run(params, train_dataset, val_dataset, test_dataset, device, class_weights,
     model = resnet18(num_classes, pretrained=True, dropout=params["dropout"])
     model.to(device)
 
+    model = set_trainable_layers(model, params["freeze_mode"])
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+
     if params["optimiser"] == "adam":
-        optimiser = optim.Adam(model.parameters(), lr=lr, weight_decay=params["weight_decay"])
+        optimiser = optim.Adam(trainable_params, lr=lr, weight_decay=params["weight_decay"])
     else:
-        optimiser = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+        optimiser = optim.SGD(trainable_params, lr=lr, momentum=0.9)
 
     scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=5, gamma=0.1)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
@@ -210,7 +213,8 @@ def main():
                 "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
                 "dropout": trial.suggest_float("dropout", 0.3, 0.7),
                 "optimiser": trial.suggest_categorical("optimiser", ["adam", "sgd"]),
-                "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
+                "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
+                "freeze_mode": trial.suggest_categorical("freeze_mode", ["full", "freeze", "partial"])
             }
 
             return run(params, train_dataset, val_dataset, test_dataset, device, class_weights, trial)
@@ -228,14 +232,19 @@ def main():
 
         # -- resnet18 -- #
         rn_model = resnet18(num_classes, pretrained=True, dropout=best_params["dropout"]).to(device)
+        freeze_mode = best_params.get("freeze_mode", "full")
+        rn_model = set_trainable_layers(rn_model, mode=freeze_mode)
+        trainable_params = filter(lambda p: p.requires_grad, rn_model.parameters())
 
         if best_params["optimiser"] == "adam":
-            rn_optim = torch.optim.Adam(rn_model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
+            rn_optim = torch.optim.Adam(trainable_params, lr=best_params["lr"], weight_decay=best_params["weight_decay"])
         else:
-            rn_optim = optim.SGD(rn_model.parameters(), lr=best_params["lr"], momentum=0.9)
+            rn_optim = optim.SGD(trainable_params, lr=best_params["lr"], momentum=0.9)
     else:
         rn_model = resnet18(num_classes, pretrained=True, dropout=0.3).to(device)
-        rn_optim = torch.optim.Adam(rn_model.parameters(), lr=2e-4, weight_decay=1e-5)
+        rn_model = set_trainable_layers(rn_model, mode="full")                  # change to freeze or partial to test
+        trainable_params = filter(lambda p: p.requires_grad, rn_model.parameters())
+        rn_optim = torch.optim.Adam(trainable_params, lr=2e-4, weight_decay=1e-5)
 
     rn_scheduler = optim.lr_scheduler.StepLR(rn_optim, step_size=30, gamma=0.1)
 
@@ -273,7 +282,7 @@ def main():
     print(f"resnet18 test loss: {test_loss:.4f}")
 
     overall_acc = np.sum(class_correct) / np.sum(class_total)
-    print(f"\nresnet18 test accuracy (overall): {overall_acc:.4f}%")
+    print(f"\nresnet18 test accuracy (overall): {overall_acc:.4f}")
 
     evaluate_model(rn_model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
 

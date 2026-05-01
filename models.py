@@ -57,3 +57,32 @@ def resnet18(num_classes, pretrained=True, dropout=0.0):
     )
 
     return model
+
+def set_trainable_layers(model, mode="full"):
+    if mode == "full":
+        # everything trainable
+        for param in model.parameters():
+            param.requires_grad = True
+
+    elif mode == "freeze":
+        # freeze all
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        # unfreeze classifier head
+        for param in model.fc.parameters():
+            param.requires_grad = True
+    
+    elif mode == "partial":
+        # freeze all
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        # unfreeze last block and head
+        for param in model.layer4.parameters():
+            param.requires_grad = True
+
+        for param in model.fc.parameters():
+            param.requires_grad = True
+    
+    return model

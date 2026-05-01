@@ -180,7 +180,7 @@ def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20)
     model.eval()
     os.makedirs(exp_dir, exist_ok=True)
 
-    target_layers = [model.layer4[-1]] if hasattr(model, "layer4") else [model.conv3[-1]]
+    target_layers = [model.layer4[-1]] if hasattr(model, "layer4") else [model.fc]
     cam = GradCAM(model=model, target_layers=target_layers)
 
     for images,labels, paths in loader:
