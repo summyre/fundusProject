@@ -9,7 +9,7 @@ import numpy as np
 # -- dataset class -- #
 class FundusDataset(Dataset):
     # initialising dataset attributes
-    def __init__(self, root_dir, transform=None, class_filter=None, enhance=False):
+    def __init__(self, root_dir, transform=None, class_filter=None):
         self.samples = []                # store tuples of (image_path, class_label)
         self.class_to_idx = {}           # map class names to numerical labels
         self.transform = transform       # image transformations for processing and augmentation
