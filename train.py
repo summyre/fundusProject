@@ -13,18 +13,24 @@ import os
 import optuna
 from collections import Counter
 
-num_epochs = 100
-tuning = False
+num_epochs = 100        # max number of training epochs
+tuning = False          # disable/enable hyperparameter optimisation
 
-baseline_classes = ["Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"]
+# list of diease classes used in classification task
+baseline_classes = [
+    "Healthy", "Diabetic Retinopathy", "Central Serous Chorioretinopathy", "Disc Edema", "Glaucoma", 
+    "Macular Scar", "Myopia", "Retinal Detachment", "Retinitis Pigmentosa"
+]
 
 # -- define training loop -- #
 def train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs, scheduler, name, trial=None):
     model.to(device)
-    patience = 5
+    # early stopping configuration
+    patience = 5                    # number of epochs wihtout improvement before stopping
     no_improve = 0
     best_loss = float("inf")
 
+    # storing training history for later visualisation
     history = {
         'train_loss': [],
         'val_loss': [],
@@ -32,8 +38,10 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         'val_acc': []
     }
 
+    # epoch loop
     for epoch in range(num_epochs): # loop over the dataset multiple times
         start_time = time.time()
+        # tracking metrics per epoch
         train_loss, train_correct, train_total = 0.0, 0, 0
         val_loss, val_correct, val_total = 0.0, 0, 0
 
@@ -41,13 +49,16 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         model.train()
         for data, target, _ in train_loader:
             data, target = data.to(device), target.to(device)   # get the inputs
-            optimiser.zero_grad()   # set the parameter gradients to zero
-            output = model(data)
-            loss = criterion(output, target)
-            loss.backward()
-            optimiser.step()
+            optimiser.zero_grad()               # set the parameter gradients to zero
+            output = model(data)                # forward pass
+            loss = criterion(output, target)    # compute loss
+            loss.backward()                     # backpropagation
+            optimiser.step()                    # update weights
+            
+            # totalling loss weighted by batch size
             train_loss += loss.item() * data.size(0)
 
+            #computing training accuracy
             _, preds = torch.max(output, 1)
             train_correct += (preds == target).sum().item()
             train_total += target.size(0)
@@ -65,15 +76,15 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
                 val_correct += (preds == target).sum().item()
                 val_total += target.size(0)
 
-        # calculate average loss
+        # calculating average loss
         train_loss /= len(train_loader.dataset)
         val_loss /= len(val_loader.dataset)
 
-        # calculate epoch metrics
+        # calculating epoch metrics
         train_acc = train_correct / train_total
         val_acc = val_correct / val_total
 
-        # optuna pruning
+        # optuna pruning (for tuning only)
         if trial is not None:
             trial.report(val_acc, epoch)
 
@@ -85,7 +96,7 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
 
         print(f"Epoch: {epoch+1}/{num_epochs} | Time: {epoch_time:.3f}s | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f} | Val Loss: {val_loss:.4f}")
 
-        # save model if val loss decreases -- early stopping
+        # saving model if val loss decreases - checkpoint
         if val_loss < best_loss:
             print(f"validation loss decreased ({best_loss:.4f} -> {val_loss}). saving model as {name}.pt")
             if trial is None:
@@ -99,12 +110,14 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
         else:
             no_improve += 1
 
+        # early stopping condition
         if no_improve >= patience:
             print("early stopping triggered")
             break
 
         scheduler.step()
 
+        # saving metrics
         history["train_loss"].append(train_loss)
         history["train_acc"].append(train_acc)
         history["val_loss"].append(val_loss)
@@ -112,29 +125,36 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
     
     return history
 
+# -- experiment runner -- #
 def run(params, train_dataset, val_dataset, test_dataset, device, class_weights, trial=None):
     lr = params["lr"]
     num_classes = len(baseline_classes)
 
+    # creating dataloaders
     train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
+    # loading pretrained resnet18 model
     model = resnet18(num_classes, pretrained=True, dropout=params["dropout"])
     model.to(device)
 
+    # applying freezing strategy 
     model = set_trainable_layers(model, params["freeze_mode"])
-    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())     # only optimise trainable params
 
+    # selecting an optimiser
     if params["optimiser"] == "adam":
         optimiser = optim.Adam(trainable_params, lr=lr, weight_decay=params["weight_decay"])
     else:
         optimiser = optim.SGD(trainable_params, lr=lr, momentum=0.9)
 
+    # learning rate schedule
     scheduler = optim.lr_scheduler.StepLR(optimiser, step_size=5, gamma=0.1)
+    # weighted loss to handle class imbalance
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     train_model(model, train_loader, val_loader, criterion, optimiser, device, num_epochs=15, scheduler=scheduler, name="temp", trial=trial)
 
-    # evaluate f1
+    # evaluate macro f1
     all_preds = []
     all_labels = []
 
