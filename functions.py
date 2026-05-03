@@ -174,6 +174,9 @@ def plot_history(history, exp_dir, model_name):
     plt.close()
 
 def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20):
+    for p in model.parameters():
+        p.requires_grad = True
+      
     class_counter = defaultdict(int)
     max_per_class = num_images // len(class_names)
 
