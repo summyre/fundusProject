@@ -178,15 +178,19 @@ def main():
     np.random.seed(seed)
     random.seed(seed)
 
+    # loading fundus image dataset and filtering to selected disease classes
     dataset = FundusDataset(
         root_dir=r"data/Original_Dataset",
         transform=None,
         class_filter=baseline_classes
     )
     num_classes = len(baseline_classes)
-    indices = np.arange(len(dataset))
-    np.random.shuffle(indices)
 
+    # train-validation-test split
+    indices = np.arange(len(dataset))
+    np.random.shuffle(indices)               # randomly shuffle dataset indices before splitting
+
+    # split 75/15/10
     train_size = int(0.75 * len(indices))
     val_size = int(0.15 * len(indices))
 
@@ -194,13 +198,15 @@ def main():
     val_indices = indices[train_size:train_size+val_size]
     test_indices = indices[train_size+val_size:]
 
-    train_dataset = TransformDataset(Subset(dataset, train_indices), transform=train_transform)
-    val_dataset = TransformDataset(Subset(dataset, val_indices), transform=val_transform)
+    # applying data transformations
+    train_dataset = TransformDataset(Subset(dataset, train_indices), transform=train_transform)    # augmentation
+    val_dataset = TransformDataset(Subset(dataset, val_indices), transform=val_transform)          # deterministic preprocessing
     test_dataset = TransformDataset(Subset(dataset, test_indices), transform=val_transform)
 
+    # creating dataloaders
     train_loader, val_loader, test_loader = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")        # use gpu acceleration if CUDA is available
 
     # weighted loss criterion to handle class imbalance
     train_labels = []
@@ -215,18 +221,20 @@ def main():
         print(f"{class_name}: {class_counts[i]}")
 
     total_samples = len(train_labels)
-
+    # computing class weights inversely proportional to class frequency
     class_weights = torch.tensor(
         [np.sqrt(total_samples / (num_classes * class_counts.get(i, 1))) for i in range(num_classes)],
         dtype=torch.float
     )
-    
+
+    # preventing excessively large weights
     class_weights = torch.clamp(class_weights, max=2.5)
     class_weights = class_weights.to(device)
 
     print(class_weights)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
+    # -- hyperparameter optimisation -- #
     if tuning:
         def objective(trial):
             params = {
@@ -250,7 +258,7 @@ def main():
 
         best_params = study.best_params
 
-        # -- resnet18 -- #
+        # -- build resnet18 using best hyperparameters -- #
         rn_model = resnet18(num_classes, pretrained=True, dropout=best_params["dropout"]).to(device)
         freeze_mode = best_params.get("freeze_mode", "full")
         rn_model = set_trainable_layers(rn_model, mode=freeze_mode)
@@ -261,6 +269,7 @@ def main():
         else:
             rn_optim = optim.SGD(trainable_params, lr=best_params["lr"], momentum=0.9)
     else:
+        # default training configuration / current best hyperparam after tuning
         rn_model = resnet18(num_classes, pretrained=True, dropout=0.3).to(device)
         rn_model = set_trainable_layers(rn_model, mode="full")                  # change to freeze or partial to test
         trainable_params = filter(lambda p: p.requires_grad, rn_model.parameters())
@@ -306,6 +315,7 @@ def main():
 
     evaluate_model(rn_model, test_loader, device, baseline_classes, exp_dir="resnet18", split_name="test")
 
+    # generating Grad-CAM visualisations - used to interpret model attention regions
     generate_gradcam(rn_model, test_loader, device, exp_dir="resnet18/gradcam", class_names=baseline_classes, num_images=50)
 
 if __name__ == '__main__':
