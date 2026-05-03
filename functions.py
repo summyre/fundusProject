@@ -17,36 +17,42 @@ from collections import defaultdict
 
 # -- evaluate model function -- #
 def evaluate_model(model, loader, device, class_names, exp_dir, split_name="val"):
-    model.eval()
+    model.eval()      # set model to evaluation mode
 
+    # storing predictions, labels and class probabilities for metric calculation
     all_preds = []
     all_labels = []
     all_probs = []
 
-    with torch.no_grad():
+    with torch.no_grad():                # disable gradient computation for faster inference
         for images, labels, _ in loader:
-            images = images.to(device)
-            outputs = model(images)
-            probs = torch.softmax(outputs, dim=1)
-            preds = torch.argmax(outputs, dim=1)
+            images = images.to(device)             # move images to selected device
+            outputs = model(images)                # forward pass
+            probs = torch.softmax(outputs, dim=1)  # covert unnormalised final scores from model to probabilities
+            preds = torch.argmax(outputs, dim=1)   # predicted class = highest probability
 
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy()) 
             all_probs.extend(probs.cpu().numpy())
 
+    # converting lists to NumPy arrays for sklearn metric computation
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
     all_probs = np.array(all_probs)
 
+    # -- overall performance metrics -- #
     # accuracy
     acc = np.mean(all_preds == all_labels)
 
-    # macro metrics
+    # macro metrics - treats all classes equally
     m_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     m_rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
     m_prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
+  
+    # one-vs-rest multi-class ROC-AUC
     auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
 
+    # converting labels to one-hot encoding
     y_true = label_binarize(all_labels, classes=np.arange(len(class_names)))
     y_score = all_probs
 
@@ -58,7 +64,8 @@ macro recall:       {m_rec:.4f}
 macro precision:    {m_prec:.4f}
 macro auc:          {auc:.4f}
 """)
-    
+
+    # sklearn confusion matrix
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
     fig, ax = plt.subplots(figsize=(24,16))
 
@@ -80,7 +87,7 @@ macro auc:          {auc:.4f}
     plt.tight_layout(pad=3)
     plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix.png"), dpi=300, bbox_inches='tight')
 
-    # confusion matrix with sns
+    # confusion matrix with sns - alternative heatmap
     plt.figure(figsize=(24,16))
     sns.heatmap(
         cm,
@@ -97,7 +104,7 @@ macro auc:          {auc:.4f}
     plt.tight_layout()
     plt.savefig(os.path.join(exp_dir, f"{split_name}_confusion_matrix_sns.png"), dpi=300, bbox_inches='tight')
 
-    # per-class roc
+    # generating one-vs-rest ROC curve for each disease class
     plt.figure(figsize=(10,8))
     for i, class_name in enumerate(class_names):
         fpr, tpr, _ = roc_curve(y_true[:,i], y_score[:,i])
