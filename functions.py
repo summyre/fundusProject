@@ -180,50 +180,59 @@ def plot_history(history, exp_dir, model_name):
     plt.savefig(os.path.join(exp_dir, 'accuracy_curves.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
+# -- generating grad-cam overlays and images --#
 def generate_gradcam(model, loader, device, exp_dir, class_names, num_images=20):
+    # ensuring gradients are enabled (required for Grad-CAM backprop)
     for p in model.parameters():
         p.requires_grad = True
-      
+
+    # tracking number of saved images per class
     class_counter = defaultdict(int)
     max_per_class = num_images // len(class_names)
 
-    model.eval()
+    model.eval()        # set model to evaluation mode
     os.makedirs(exp_dir, exist_ok=True)
 
+    # selecting target layer for Grad-CAM (last convolutional block or fc layer)
     target_layers = [model.layer4[-1]] if hasattr(model, "layer4") else [model.fc]
     cam = GradCAM(model=model, target_layers=target_layers)
 
+    # iterating through dataset batches
     for images,labels, paths in loader:
         images = images.to(device)
 
+        # processing each image individually for visualisation
         for i in range(images.size(0)):
-            if sum(class_counter.values()) >= num_images:
+            if sum(class_counter.values()) >= num_images:  # stop once required number of images is generated
                 return
             
-            input_tensor = images[i].unsqueeze(0)
-            output = model(input_tensor)
+            input_tensor = images[i].unsqueeze(0)          # prepare single image tensor
+            output = model(input_tensor)                   # forward pass
             pred = torch.argmax(output, dim=1).item()
-            probs = torch.softmax(output, dim=1)
+            probs = torch.softmax(output, dim=1)           # convert logits to probabilities for confidence score
             confidence = probs[0, pred].item()
-            true = labels[i].item()
+            true = labels[i].item()                        # get true label
 
-            if class_counter[true] >= max_per_class:
+            if class_counter[true] >= max_per_class:       # limit number of samples per class
                 continue
 
+            # creating output directory based on if prediction was correct or not
             folder = "correct" if pred == true else "incorrect"
             class_name = class_names[true]
             path = os.path.join(exp_dir, folder, class_name)
             os.makedirs(path, exist_ok=True)
 
-            # generate CAM
+            # generating Grad-CAM heatmap
             grayscale_cam = cam(input_tensor=input_tensor)[0]
 
-            # convert image back to numpy (for overlay)
+            # converting tensor image back to numpy (for overlay)
             img = images[i].cpu().permute(1,2,0).numpy()
             img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
+            # overlaying heatmap on original image
             cam_img = show_cam_on_image(img, grayscale_cam, use_rgb=True)
 
+            # save image
             filename = f"{class_counter[true]}_true-{class_names[true]}_pred-{class_names[pred]}_conf-{confidence:.2f}.png"
             cv2.imwrite(os.path.join(path, filename), cam_img)
             class_counter[true] += 1
