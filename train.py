@@ -129,7 +129,6 @@ def train_model(model, train_loader, val_loader, criterion, optimiser, device, n
 def run(params, train_dataset, val_dataset, test_dataset, device, class_weights, trial=None):
     lr = params["lr"]
     num_classes = len(baseline_classes)
-
     # creating dataloaders
     train_loader, val_loader, _ = create_loaders(train_dataset, val_dataset, test_dataset, batch_size=128)
 
