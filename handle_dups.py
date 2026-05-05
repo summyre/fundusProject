@@ -5,8 +5,8 @@ import hashlib
 from collections import defaultdict
 
 # setting the names of the directories
-dataset_dir = "data/Augmented_Dataset"
-conflict_dir = "data/conflicts/aug"
+dataset_dir = "data/Original_Dataset"
+conflict_dir = "data/conflicts/og"
 
 # making conflict directory if it does not exist
 os.makedirs(conflict_dir, exist_ok=True)
